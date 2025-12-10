@@ -1,0 +1,11 @@
+{
+  "DEV": {
+    "base_url": "https://extapi.dcb-dev.vul-mij-in.be"
+  },
+  "TI": {
+    "base_url": "https://extapi.dcb-ti.vul-mij-in.be"
+  },
+  "PROD": {
+    "base_url": "https://extapi.dcb.vul-mij-in.be"
+  }
+}

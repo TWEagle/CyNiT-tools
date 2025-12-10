@@ -1,0 +1,49 @@
+{
+  "tools": [
+    {
+      "id": "certviewer",
+      "name": "Certificate / CSR Viewer",
+      "type": "web",
+      "script": "cert_viewer.py",
+      "web_path": "/cert",
+      "icon_web": "📜",
+      "description": "Decode X.509 certificaten en CSRs, bekijk subject/issuer/properties en exporteer naar JSON, CSV, XLSX, HTML, MD."
+    },
+    {
+      "id": "exports",
+      "name": "Opgeslagen exports",
+      "type": "web",
+      "web_path": "/exports",
+      "script": "cert_viewer.py",
+      "icon_web": "📂",
+      "description": "Bekijk alle opgeslagen Markdown exports."
+    },
+    {
+      "id": "voica1",
+      "name": "VOICA1 Certificaten aanmaken",
+      "type": "web",
+      "web_path": "/voica1",
+      "script": "voica1.py",
+      "icon_web": "📱",
+      "description": "Batch CSR + certificaatverwerking voor VOICA1 phones en PCs/VMs."
+    },
+    {
+      "id": "configeditor",
+      "name": "Config & Theme Editor",
+      "type": "web",
+      "web_path": "/config-editor",
+      "script": "config_editor.py",
+      "icon_web": "⚙️",
+      "description": "Bewerk settings.json, VOICA1-config en templates centraal via CyNiT Tools."
+    },
+    {
+      "id": "dcbaas-org-export",
+      "name": "DCBaaS org-export",
+      "type": "web",
+      "web_path": "/dcbaas-org-export",
+      "script": "dcb_org_export.py",
+      "icon_web": "📊",
+      "description": "Zoek alle certificaten per organisatie-code en exporteer naar Excel."
+    }
+  ]
+}

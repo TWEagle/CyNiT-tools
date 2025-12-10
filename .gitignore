@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual envs
+venv/
+*/venv/
+.env/
+.venv/
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Dist/exports
+dist/
+*.zip
+
+# yt-dlp cache/outputs (indien nodig)
+SP-YT/downloads/

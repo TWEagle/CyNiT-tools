@@ -1,0 +1,11 @@
+{
+  "signal": {
+    "enabled": true,
+    "binary": "C:\\gh\\MijnPythonScriptjes\\CyNiT-tools\\scli\\bin\\signal-cli.bat",
+    "sender": "+32486572095",
+    "default_recipients": [
+      "+32486572095"
+    ],
+    "timeout_sec": 15
+  }
+}

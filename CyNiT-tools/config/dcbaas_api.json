@@ -1,0 +1,32 @@
+{
+  "default_env": "PROD",
+  "environments": {
+    "DEV": {
+      "label": "DCBaaS DEV",
+      "external_api_base": "https://extapi.dcb-dev.vlaanderen.be",
+      "access_token": "",
+      "token_file": "C:/Users/lemmenmf/OneDrive - Vlaamse overheid - Office 365/DCBaaS/API/dev/access_token.txt",
+      "auth_audience": "https://authenticatie-ti.vlaanderen.be/op",
+      "token_url": "https://authenticatie-ti.vlaanderen.be/op/v1/token",
+      "scope": "dvl_dcbaas_app_application_admin dvl_dcbaas_app_certificate_admin dvl_dcbaas_app_helpdesk dvl_dcbaas_app_config_admin dvl_dcbaas_org_workflow_operator dvl_dcbaas_org_certificate_admin_organization"
+    },
+    "TI": {
+      "label": "DCBaaS TI",
+      "external_api_base": "https://extapi.dcb-ti.vlaanderen.be",
+      "access_token": "",
+      "token_file": "C:/Users/lemmenmf/OneDrive - Vlaamse overheid - Office 365/DCBaaS/API/ti/access_token.txt",
+      "auth_audience": "https://authenticatie-ti.vlaanderen.be/op",
+      "token_url": "https://authenticatie-ti.vlaanderen.be/op/v1/token",
+      "scope": "dvl_dcbaas_app_application_admin dvl_dcbaas_app_certificate_admin dvl_dcbaas_app_helpdesk dvl_dcbaas_app_config_admin dvl_dcbaas_org_workflow_operator dvl_dcbaas_org_certificate_admin_organization"
+    },
+    "PROD": {
+      "label": "DCBaaS PROD",
+      "external_api_base": "https://extapi.dcb.vlaanderen.be",
+      "access_token": "",
+      "token_file": "C:/Users/lemmenmf/OneDrive - Vlaamse overheid - Office 365/DCBaaS/API/prd/access_token.txt",
+      "auth_audience": "https://authenticatie.vlaanderen.be/op",
+      "token_url": "https://authenticatie.vlaanderen.be/op/v1/token",
+      "scope": "dvl_dcbaas_app_application_admin dvl_dcbaas_app_certificate_admin dvl_dcbaas_app_helpdesk dvl_dcbaas_app_config_admin dvl_dcbaas_org_workflow_operator dvl_dcbaas_org_certificate_admin_organization"
+    }
+  }
+}

@@ -1,0 +1,7 @@
+openpyxl
+pandas
+requests
+XlsxWriter
+cryptography
+ttkbootstrap
+pyopenssl

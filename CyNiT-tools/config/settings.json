@@ -1,0 +1,100 @@
+{
+  "colors": {
+    "background": "#000000",
+    "general_fg": "#00FA00",
+    "title": "#00A2FF",
+    "table_col1_bg": "#666666",
+    "table_col1_fg": "#FEFE57",
+    "table_col2_bg": "#AAAAAA",
+    "table_col2_fg": "#00FA00",
+    "button_bg": "#111111",
+    "button_fg": "#00B7C3"
+  },
+  "paths": {
+    "logo": "logo.png",
+    "help": "ABOUT.md"
+  },
+  "ui": {
+    "logo_max_height": 80,
+    "font_main": "Consolas",
+    "font_buttons": "Segoe UI"
+  },
+  "dev_mode": true,
+  "secret_key": "cynit-super-secret",
+  "secrets": {
+    "yt_pin": "3141"
+  },
+  "home_columns": 4,
+  "active_profile": "CyNiT",
+  "profiles": {
+    "default": {
+      "colors": {
+        "background": "#000000",
+        "general_fg": "#00FA00",
+        "title": "#00A2FF",
+        "table_col1_bg": "#666666",
+        "table_col1_fg": "#FEFE57",
+        "table_col2_bg": "#AAAAAA",
+        "table_col2_fg": "#00FA00",
+        "button_bg": "#111111",
+        "button_fg": "#00B7C3"
+      },
+      "paths": {
+        "logo": "logo.png",
+        "help": "ABOUT.md"
+      },
+      "ui": {
+        "logo_max_height": 80,
+        "font_main": "Consolas",
+        "font_buttons": "Segoe UI"
+      }
+    },
+    "CyNiT": {
+      "colors": {
+        "background": "#000000",
+        "general_fg": "#00FA00",
+        "title": "#00A2FF",
+        "table_col1_bg": "#666666",
+        "table_col1_fg": "#FEFE57",
+        "table_col2_bg": "#AAAAAA",
+        "table_col2_fg": "#00FA00",
+        "button_bg": "#111111",
+        "button_fg": "#00B7C3"
+      },
+      "paths": {
+        "logo": "logo.png",
+        "help": "ABOUT.md"
+      },
+      "ui": {
+        "logo_max_height": 80,
+        "font_main": "Consolas",
+        "font_buttons": "Segoe UI"
+      }
+    },
+    "TWEagle": {
+      "colors": {
+        "background": "#000000",
+        "general_fg": "#00FA00",
+        "title": "#00A2FF",
+        "table_col1_bg": "#666666",
+        "table_col1_fg": "#FEFE57",
+        "table_col2_bg": "#AAAAAA",
+        "table_col2_fg": "#00FA00",
+        "button_bg": "#111111",
+        "button_fg": "#00B7C3"
+      },
+      "paths": {
+        "logo": "logo.png",
+        "help": "ABOUT.md"
+      },
+      "ui": {
+        "logo_max_height": 80,
+        "font_main": "Consolas",
+        "font_buttons": "Segoe UI"
+      },
+      "secrets": {
+        "yt_pin": "3990"
+      }
+    }
+  }
+}

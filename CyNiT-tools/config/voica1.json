@@ -1,0 +1,6 @@
+{
+  "default_key_size": 2048,
+  "pass_length": 24,
+  "openssl_bin": "openssl",
+  "root_base_dir": "C:\\\\Users\\\\lemmenmf\\\\OneDrive - Vlaamse overheid - Office 365\\\\DCBaaS\\\\VOICA1"
+}

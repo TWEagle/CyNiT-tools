@@ -1,0 +1,57 @@
+{
+  "xlsx": {
+    "sheet": {
+      "default_bg": "#FFFFFF"
+    },
+    "title": {
+      "font_size": 16,
+      "bold": true,
+      "italic": false,
+      "color": "#000000"
+    },
+    "field_col": {
+      "font_size": 12,
+      "bold": true,
+      "italic": true,
+      "color": "#000000"
+    },
+    "value_col": {
+      "font_size": 12,
+      "bold": false,
+      "italic": false,
+      "color": "#000000"
+    }
+  },
+  "html": {
+    "body": {
+      "bg": "#FFFFFF",
+      "fg": "#000000"
+    },
+    "title": {
+      "color": "#0000FF",
+      "font_size_px": 16,
+      "bold": true
+    },
+    "table": {
+      "border_color": "#000000",
+      "border_width_px": 1,
+      "field_col": {
+        "font_size_px": 14,
+        "bold": true,
+        "italic": true
+      },
+      "value_col": {
+        "font_size_px": 12,
+        "bold": false,
+        "italic": false
+      }
+    }
+  },
+  "md": {
+    "title_prefix": "# ",
+    "section_prefix": "## ",
+    "bold_field_names": true,
+    "table_header": "| Field | Value |",
+    "table_sep": "| --- | --- |"
+  }
+}

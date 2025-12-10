@@ -1,0 +1,14 @@
+{
+  "helpfiles": [
+    {
+      "id": "about",
+      "name": "About CyNiT Tools",
+      "md": "help/about.md"
+    },
+    {
+      "id": "layout",
+      "name": "Layout & theming",
+      "md": "help/layout_help.md"
+    }
+  ]
+}
