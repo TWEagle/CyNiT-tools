@@ -20,9 +20,10 @@
     "font_buttons": "Segoe UI"
   },
   "dev_mode": true,
+  "auto_unlock": true,
   "secret_key": "cynit-super-secret",
   "secrets": {
-    "yt_pin": "3141"
+    "yt_pin": "3990"
   },
   "home_columns": 4,
   "active_profile": "CyNiT",

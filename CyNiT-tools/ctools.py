@@ -739,11 +739,12 @@ def start_tool():
 
 @app.route("/yt-launch", methods=["GET", "POST"])
 def yt_launch():
-    """
-    PIN-beveiligde launcher voor de CyNiT YouTube Converter (SP-YT/yt.py).
-    - PIN komt uit settings (secrets.yt_pin of yt_pin) met fallback.
-    - PIN wordt in session onthouden (yt_unlocked=True).
-    """
+    import socket, time, subprocess
+
+    # Auto-unlock mode — als dit actief is, nooit een PIN vragen
+    if SETTINGS.get("auto_unlock"):
+        session["yt_unlocked"] = True
+
     def port_open(host: str, port: int) -> bool:
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
@@ -752,8 +753,9 @@ def yt_launch():
         except Exception:
             return False
 
-    # Als we al ontgrendeld zijn deze sessie → direct starten/redirect
+    # Reeds unlocked → onmiddellijk starten of redirect
     if session.get("yt_unlocked") is True and request.method == "GET":
+        SPYT_DIR = BASE_DIR.parent / "SP-YT"
         yt_script = SPYT_DIR / "yt.py"
 
         if not yt_script.exists():
@@ -777,35 +779,29 @@ def yt_launch():
 
         return "YT-app start niet correct op.", 500
 
-    # GET → PIN-vraag tonen
-    if request.method == "GET":
+    # GET → PIN-vraag tonen, behalve bij auto_unlock
+    if request.method == "GET" and not SETTINGS.get("auto_unlock"):
         return render_template_string("""
-        <html><body style="background:#0a0a0a;color:#fff;font-family:system-ui;">
+        <html><body style="background:#0a0a0a;color:#fff;">
             <div style="max-width:300px;margin:120px auto;text-align:center;">
-                <h2 style="margin-bottom:20px;">YT Launcher PIN</h2>
+                <h2>YT Launcher PIN</h2>
                 <form method="POST">
                     <input name="pin" type="password"
                            style="padding:8px;width:100%;border-radius:6px;
-                                  border:1px solid #333;background:#111;color:#0f0;font-size:1rem;
                                   text-align:center;letter-spacing:4px;" autofocus>
-                    <button style="margin-top:15px;padding:8px 16px;border:0;
-                                    border-radius:6px;background:#0f0;color:#000;font-weight:600;">
-                        Unlock
-                    </button>
+                    <button style="margin-top:15px;padding:8px 16px;">Unlock</button>
                 </form>
             </div>
         </body></html>
         """)
 
-    # POST → PIN checken
-    pin = (request.form.get("pin") or "").strip()
-    if pin != get_yt_pin():
-        return "<h3 style='color:red;font-family:system-ui;'>Foute PIN</h3>", 403
+    # POST → PIN checken (alleen als auto_unlock disabled is)
+    if not SETTINGS.get("auto_unlock"):
+        pin = (request.form.get("pin") or "").strip()
+        if pin != get_yt_pin():
+            return "<h3 style='color:red;'>Foute PIN</h3>", 403
+        session["yt_unlocked"] = True
 
-    # PIN is ok → onthouden in deze sessie
-    session["yt_unlocked"] = True
-
-    # En dan via GET-logica verdergaan (zodat code niet dubbel is)
     return redirect(url_for("yt_launch"))
 
 
