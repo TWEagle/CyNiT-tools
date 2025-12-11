@@ -1,0 +1,20 @@
+{
+  "paths": {
+    "input_folder": "C:/mus",
+    "output_folder": "C:/mus-e",
+    "download_folder": "C:/mus",
+    "ffmpeg": "ffmpeg"
+  },
+  "yt": {
+    "max_workers": 3,
+    "max_retries": 6,
+    "sleep_between_retries": 2.0
+  },
+  "input_folder": "C:/mus",
+  "output_folder": "C:/mus-e",
+  "yt_download_folder": "C:/mus",
+  "mp3_normalize": true,
+  "mp3_retries": 5,
+  "yt_retries": 5,
+  "yt_parallel_downloads": 3
+}
