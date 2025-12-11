@@ -7,11 +7,15 @@ useful_links.py
 Features:
 - Links met: id, label, url, info, category.
 - Overzicht in tabblad "Links".
-- Toevoegen in tabblad "Beheer / toevoegen".
+- Toevoegen & bewerken in tabblad "Beheer / toevoegen".
 - Categorieën:
   * worden mee opgeslagen in config/links.json
   * lijst gesorteerd per categorie + naam
   * bovenaan filterknoppen per categorie (incl. "Alle")
+- Acties per link:
+  * ✏️ bewerken
+  * ✔️ kopiëren
+  * 🗑️ verwijderen
 """
 
 from __future__ import annotations
@@ -19,7 +23,7 @@ from __future__ import annotations
 import json
 import uuid
 from pathlib import Path
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Tuple, Optional
 
 from flask import Blueprint, render_template_string, request, redirect, url_for
 
@@ -237,8 +241,9 @@ TEMPLATE = """
     .btn {
       display: inline-flex;
       align-items: center;
-      gap: 6px;
-      padding: 6px 14px;
+      justify-content: center;
+      gap: 4px;
+      padding: 4px 10px;
       border-radius: 999px;
       border: none;
       background: {{ colors.button_bg }};
@@ -248,6 +253,13 @@ TEMPLATE = """
       cursor: pointer;
       text-decoration: none;
       box-shadow: 0 3px 8px rgba(0,0,0,0.8);
+      min-width: 34px;
+    }
+
+    .btn-icon {
+      font-size: 0.9rem;
+      padding-left: 8px;
+      padding-right: 8px;
     }
 
     .btn:hover {
@@ -273,6 +285,12 @@ TEMPLATE = """
 
     .links-list td.actions-cell {
       white-space: nowrap;
+    }
+
+    .actions-cell-inner {
+      display: flex;
+      gap: 4px;
+      align-items: center;
     }
 
     a.link-url {
@@ -414,12 +432,16 @@ TEMPLATE = """
       </div>
 
       <div class="tabs">
-        <button type="button" class="tab-btn active" data-tab="tab-links">Overzicht</button>
-        <button type="button" class="tab-btn" data-tab="tab-manage">Beheer / toevoegen</button>
+        <button type="button"
+                class="tab-btn {% if not edit_link %}active{% endif %}"
+                data-tab="tab-links">Overzicht</button>
+        <button type="button"
+                class="tab-btn {% if edit_link %}active{% endif %}"
+                data-tab="tab-manage">Beheer / toevoegen</button>
       </div>
 
       <!-- TAB 1: alleen de lijst met links -->
-      <div id="tab-links" class="tab-pane active">
+      <div id="tab-links" class="tab-pane {% if not edit_link %}active{% endif %}">
         <h2>Links</h2>
         {% if links %}
           <table class="links-list">
@@ -444,16 +466,35 @@ TEMPLATE = """
                   </td>
                   <td>{{ link.info }}</td>
                   <td class="actions-cell">
-                    <button type="button" class="btn" onclick="copyLinkToClipboard('{{ link.url }}')">
-                      Kopieer
-                    </button>
-                    <form method="post" action="{{ url_for('useful_links.links_page') }}" style="display:inline;">
-                      <input type="hidden" name="action" value="delete">
-                      <input type="hidden" name="link_id" value="{{ link.id }}">
-                      <button type="submit" class="btn" style="margin-left:4px;">
-                        Verwijder
+                    <div class="actions-cell-inner">
+                      <!-- Edit -->
+                      <a href="{{ url_for('useful_links.links_page', edit=link.id) }}"
+                         class="btn btn-icon"
+                         title="Bewerk link">
+                        ✏️
+                      </a>
+
+                      <!-- Copy -->
+                      <button type="button"
+                              class="btn btn-icon"
+                              title="Kopieer URL"
+                              onclick="copyLinkToClipboard('{{ link.url }}')">
+                        ✔️
                       </button>
-                    </form>
+
+                      <!-- Delete -->
+                      <form method="post"
+                            action="{{ url_for('useful_links.links_page') }}"
+                            style="display:inline;">
+                        <input type="hidden" name="action" value="delete">
+                        <input type="hidden" name="link_id" value="{{ link.id }}">
+                        <button type="submit"
+                                class="btn btn-icon"
+                                title="Verwijder link">
+                          🗑️
+                        </button>
+                      </form>
+                    </div>
                   </td>
                 </tr>
               {% endfor %}
@@ -467,36 +508,84 @@ TEMPLATE = """
         {% endif %}
       </div>
 
-      <!-- TAB 2: formulier om links toe te voegen -->
-      <div id="tab-manage" class="tab-pane">
-        <h2>Link toevoegen / beheren</h2>
-        <form method="post" action="{{ url_for('useful_links.links_page') }}">
-          <input type="hidden" name="action" value="add">
-          <div class="links-form-grid">
-            <div>
-              <label for="label">Naam / label <span class="muted">(verplicht)</span></label>
-              <input type="text" id="label" name="label" placeholder="Bijv. DCBaaS dashboard" required>
+      <!-- TAB 2: formulier om links toe te voegen of te bewerken -->
+      <div id="tab-manage" class="tab-pane {% if edit_link %}active{% endif %}">
+        {% if edit_link %}
+          <h2>Link bewerken</h2>
+          <form method="post" action="{{ url_for('useful_links.links_page') }}">
+            <input type="hidden" name="action" value="update">
+            <input type="hidden" name="link_id" value="{{ edit_link.id }}">
+            <div class="links-form-grid">
+              <div>
+                <label for="label">Naam / label <span class="muted">(verplicht)</span></label>
+                <input type="text"
+                       id="label"
+                       name="label"
+                       value="{{ edit_link.label }}"
+                       required>
+              </div>
+              <div>
+                <label for="url">URL <span class="muted">(verplicht)</span></label>
+                <input type="text"
+                       id="url"
+                       name="url"
+                       value="{{ edit_link.url }}"
+                       required>
+              </div>
+              <div>
+                <label for="category">Categorie <span class="muted">(optioneel)</span></label>
+                <input type="text"
+                       id="category"
+                       name="category"
+                       value="{{ edit_link.category }}">
+              </div>
+              <div class="full-row">
+                <label for="info">Info / beschrijving <span class="muted">(optioneel)</span></label>
+                <textarea id="info"
+                          name="info"
+                          placeholder="Korte uitleg wat deze link doet of wanneer je hem gebruikt.">{{ edit_link.info }}</textarea>
+              </div>
             </div>
-            <div>
-              <label for="url">URL <span class="muted">(verplicht)</span></label>
-              <input type="text" id="url" name="url" placeholder="https://..." required>
+            <div style="margin-top: 12px;">
+              <button type="submit" class="btn">Wijzigingen opslaan</button>
+              <a href="{{ url_for('useful_links.links_page') }}"
+                 class="btn"
+                 style="margin-left:6px;">Annuleren</a>
             </div>
-            <div>
-              <label for="category">Categorie <span class="muted">(optioneel, bijv. DCBaaS, VO, Tools)</span></label>
-              <input type="text" id="category" name="category" placeholder="Bijv. DCBaaS, VO, Tools">
+          </form>
+          <p class="muted" style="margin-top:8px;">
+            Je bewerkt nu een bestaande link. Alle data wordt opgeslagen in <code>config/links.json</code>.
+          </p>
+        {% else %}
+          <h2>Link toevoegen</h2>
+          <form method="post" action="{{ url_for('useful_links.links_page') }}">
+            <input type="hidden" name="action" value="add">
+            <div class="links-form-grid">
+              <div>
+                <label for="label">Naam / label <span class="muted">(verplicht)</span></label>
+                <input type="text" id="label" name="label" placeholder="Bijv. DCBaaS dashboard" required>
+              </div>
+              <div>
+                <label for="url">URL <span class="muted">(verplicht)</span></label>
+                <input type="text" id="url" name="url" placeholder="https://..." required>
+              </div>
+              <div>
+                <label for="category">Categorie <span class="muted">(optioneel, bijv. DCBaaS, VO, Tools)</span></label>
+                <input type="text" id="category" name="category" placeholder="Bijv. DCBaaS, VO, Tools">
+              </div>
+              <div class="full-row">
+                <label for="info">Info / beschrijving <span class="muted">(optioneel)</span></label>
+                <textarea id="info" name="info" placeholder="Korte uitleg wat deze link doet of wanneer je hem gebruikt."></textarea>
+              </div>
             </div>
-            <div class="full-row">
-              <label for="info">Info / beschrijving <span class="muted">(optioneel)</span></label>
-              <textarea id="info" name="info" placeholder="Korte uitleg wat deze link doet of wanneer je hem gebruikt."></textarea>
+            <div style="margin-top: 12px;">
+              <button type="submit" class="btn">Link toevoegen</button>
             </div>
-          </div>
-          <div style="margin-top: 12px;">
-            <button type="submit" class="btn">Link toevoegen</button>
-          </div>
-        </form>
-        <p class="muted" style="margin-top:8px;">
-          Alle links worden bewaard in <code>config/links.json</code>.
-        </p>
+          </form>
+          <p class="muted" style="margin-top:8px;">
+            Alle links worden bewaard in <code>config/links.json</code>.
+          </p>
+        {% endif %}
       </div>
     </div>
   </div>
@@ -525,17 +614,16 @@ def links_page():
     links_list: List[Dict[str, Any]] = data.get("links", [])
     links_list = [_ensure_category(l) for l in links_list]
 
-    # categorieën + sortering
-    categories = sorted({l.get("category", DEFAULT_CATEGORY) for l in links_list})
-    links_sorted = sorted(
-        links_list,
-        key=lambda l: (
-            (l.get("category") or DEFAULT_CATEGORY).lower(),
-            (l.get("label") or "").lower(),
-        ),
-    )
-
     flashes: List[Tuple[str, str]] = []
+
+    # Bepalen of we in edit-mode zitten (GET ?edit=...)
+    edit_id: Optional[str] = request.args.get("edit")
+    edit_link: Optional[Dict[str, Any]] = None
+    if edit_id:
+        for l in links_list:
+            if l.get("id") == edit_id:
+                edit_link = l
+                break
 
     if request.method == "POST":
         action = (request.form.get("action") or "").strip().lower()
@@ -561,6 +649,32 @@ def links_page():
                 _save_links(data)
                 return redirect(url_for("useful_links.links_page"))
 
+        elif action == "update":
+            link_id = (request.form.get("link_id") or "").strip()
+            label = (request.form.get("label") or "").strip()
+            url = (request.form.get("url") or "").strip()
+            info = (request.form.get("info") or "").strip()
+            category = (request.form.get("category") or "").strip() or DEFAULT_CATEGORY
+
+            if not label or not url:
+                flashes.append(("Naam en URL zijn verplicht.", "error"))
+            else:
+                updated = False
+                new_list = []
+                for l in links_list:
+                    if l.get("id") == link_id:
+                        l["label"] = label
+                        l["url"] = url
+                        l["info"] = info
+                        l["category"] = category
+                        updated = True
+                    new_list.append(l)
+                links_list = new_list
+                data["links"] = links_list
+                if updated:
+                    _save_links(data)
+                return redirect(url_for("useful_links.links_page"))
+
         elif action == "delete":
             link_id = (request.form.get("link_id") or "").strip()
             new_list = [l for l in links_list if l.get("id") != link_id]
@@ -570,17 +684,15 @@ def links_page():
                 _save_links(data)
             return redirect(url_for("useful_links.links_page"))
 
-        # na POST willen we de nieuwe state opnieuw inladen/sorteren
-        links_list = data.get("links", [])
-        links_list = [_ensure_category(l) for l in links_list]
-        categories = sorted({l.get("category", DEFAULT_CATEGORY) for l in links_list})
-        links_sorted = sorted(
-            links_list,
-            key=lambda l: (
-                (l.get("category") or DEFAULT_CATEGORY).lower(),
-                (l.get("label") or "").lower(),
-            ),
-        )
+    # categorieën + sortering voor render
+    categories = sorted({l.get("category", DEFAULT_CATEGORY) for l in links_list})
+    links_sorted = sorted(
+        links_list,
+        key=lambda l: (
+            (l.get("category") or DEFAULT_CATEGORY).lower(),
+            (l.get("label") or "").lower(),
+        ),
+    )
 
     return render_template_string(
         TEMPLATE,
@@ -593,6 +705,7 @@ def links_page():
         links=links_sorted,
         categories=categories,
         flashes=flashes,
+        edit_link=edit_link,
     )
 
 
