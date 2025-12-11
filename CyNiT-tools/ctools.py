@@ -21,6 +21,7 @@ CyNiT Tools webhub:
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import socket
@@ -51,8 +52,9 @@ import config_editor
 import dcb_org_export
 import cynit_notify
 import convert_to_ico
+import exe_builder
+import useful_links
 
-convert_to_ico.register_web_routes(app, settings, tools)
 from cynit_notify import send_signal_message, SignalError
 
 BASE_DIR = Path(__file__).parent
@@ -97,30 +99,115 @@ def get_yt_pin() -> str:
 
     return str(YTL_PIN_DEFAULT)
 
+import os  # bovenaan bij je imports
+import json
+import sys
+from pathlib import Path
+
+BASE_DIR = Path(__file__).parent  # heb je al
+
+def apply_installer_config(
+    settings: Dict[str, Any],
+    tools: List[Dict[str, Any]],
+) -> tuple[Dict[str, Any], List[Dict[str, Any]]]:
+    """
+    Overlay voor de EXE-versie:
+    - leest config/installer_config.json (als die bestaat)
+    - overschrijft theme/ui/paths in settings
+    - filtert tools op basis van modules[].enabled == true
+    """
+
+    cfg_path = BASE_DIR / "config" / "installer_config.json"
+    if not cfg_path.exists():
+        # Geen installer-config → niets doen
+        return settings, tools
+
+    try:
+        data = json.loads(cfg_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        print("[WARN] installer_config.json kon niet gelezen worden:", exc)
+        return settings, tools
+
+    # 1) Theme overlay
+    theme = data.get("theme", {})
+    if theme:
+        new_settings = dict(settings)  # shallow copy
+        for key in ("active_profile", "colors", "paths", "ui"):
+            if key in theme and theme[key] is not None:
+                new_settings[key] = theme[key]
+        settings = new_settings
+
+    # 2) Modules filteren
+    modules = data.get("modules", [])
+    enabled_ids = {m.get("id") for m in modules if m.get("enabled")}
+    enabled_ids.discard(None)
+
+    if enabled_ids:
+        filtered_tools = []
+        for t in tools:
+            tid = t.get("id")
+            # Altijd toelaten als expliciet altijd zichtbaar, bv. via flag
+            if t.get("always_visible"):
+                filtered_tools.append(t)
+                continue
+            if tid in enabled_ids:
+                filtered_tools.append(t)
+        tools = filtered_tools
+
+    return settings, tools
 
 def reload_config() -> None:
     """
     Herlaad settings.json en tools.json.
     Wordt gebruikt bij startup én door /restart.
+
+    - In dev/normal mode: alleen settings.json + tools.json
+    - In frozen/EXE mode (PyInstaller): overlay installer_config.json toepassen
+    - Altijd: tools alfabetisch sorteren op name (fallback: id)
     """
     global SETTINGS, TOOLS_CFG, TOOLS, DEV_MODE
+
     print(">>> RELOADING CONFIG")
+
+    # 1) Basisconfig
     SETTINGS = cynit_theme.load_settings()
     DEV_MODE = bool(SETTINGS.get("dev_mode", False))
 
     TOOLS_CFG = cynit_theme.load_tools()
     raw_tools = TOOLS_CFG.get("tools", [])
 
-    # Hidden tools alleen tonen in dev_mode
-    TOOLS = []
+    # 2) Filter 'hidden' tools (tenzij DEV_MODE)
+    tools_local: list[dict] = []
     for t in raw_tools:
         if t.get("hidden") and not DEV_MODE:
             continue
-        TOOLS.append(t)
+        tools_local.append(t)
 
+    # 3) EXE-modus? (PyInstaller) → installer_config overlay
+    import os
+    import sys
 
-# eerste keer laden bij start
-reload_config()
+    is_frozen = getattr(sys, "frozen", False)
+    ignore_installer_env = os.environ.get("CYNIT_IGNORE_INSTALLER_CONFIG") == "1"
+
+    if is_frozen and not ignore_installer_env:
+        print(">>> Running in frozen/EXE mode → apply installer_config.json overlay")
+        try:
+            # apply_installer_config moet eerder in dit bestand gedefinieerd zijn
+            new_settings, new_tools = apply_installer_config(SETTINGS, tools_local)
+            SETTINGS = new_settings
+            tools_local = new_tools
+        except Exception as exc:
+            print("[WARN] apply_installer_config() faalde:", exc)
+    else:
+        print(">>> Dev/normal mode → gebruik alleen settings.json + tools.json")
+
+    # 4) Altijd alfabetisch sorteren op naam (fallback: id)
+    tools_local.sort(key=lambda x: (x.get("name") or x.get("id") or "").lower())
+
+    # 5) Globale TOOLS bijwerken
+    TOOLS = tools_local
+
 
 # ===== FLASK-APP =====
 
@@ -739,12 +826,11 @@ def start_tool():
 
 @app.route("/yt-launch", methods=["GET", "POST"])
 def yt_launch():
-    import socket, time, subprocess
-
-    # Auto-unlock mode — als dit actief is, nooit een PIN vragen
-    if SETTINGS.get("auto_unlock"):
-        session["yt_unlocked"] = True
-
+    """
+    PIN-beveiligde launcher voor de CyNiT YouTube Converter (SP-YT/yt.py).
+    - PIN komt uit settings (secrets.yt_pin of yt_pin) met fallback.
+    - PIN wordt in session onthouden (yt_unlocked=True).
+    """
     def port_open(host: str, port: int) -> bool:
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
@@ -753,9 +839,8 @@ def yt_launch():
         except Exception:
             return False
 
-    # Reeds unlocked → onmiddellijk starten of redirect
+    # Als we al ontgrendeld zijn deze sessie → direct starten/redirect
     if session.get("yt_unlocked") is True and request.method == "GET":
-        SPYT_DIR = BASE_DIR.parent / "SP-YT"
         yt_script = SPYT_DIR / "yt.py"
 
         if not yt_script.exists():
@@ -779,29 +864,35 @@ def yt_launch():
 
         return "YT-app start niet correct op.", 500
 
-    # GET → PIN-vraag tonen, behalve bij auto_unlock
-    if request.method == "GET" and not SETTINGS.get("auto_unlock"):
+    # GET → PIN-vraag tonen
+    if request.method == "GET":
         return render_template_string("""
-        <html><body style="background:#0a0a0a;color:#fff;">
+        <html><body style="background:#0a0a0a;color:#fff;font-family:system-ui;">
             <div style="max-width:300px;margin:120px auto;text-align:center;">
-                <h2>YT Launcher PIN</h2>
+                <h2 style="margin-bottom:20px;">YT Launcher PIN</h2>
                 <form method="POST">
                     <input name="pin" type="password"
                            style="padding:8px;width:100%;border-radius:6px;
+                                  border:1px solid #333;background:#111;color:#0f0;font-size:1rem;
                                   text-align:center;letter-spacing:4px;" autofocus>
-                    <button style="margin-top:15px;padding:8px 16px;">Unlock</button>
+                    <button style="margin-top:15px;padding:8px 16px;border:0;
+                                    border-radius:6px;background:#0f0;color:#000;font-weight:600;">
+                        Unlock
+                    </button>
                 </form>
             </div>
         </body></html>
         """)
 
-    # POST → PIN checken (alleen als auto_unlock disabled is)
-    if not SETTINGS.get("auto_unlock"):
-        pin = (request.form.get("pin") or "").strip()
-        if pin != get_yt_pin():
-            return "<h3 style='color:red;'>Foute PIN</h3>", 403
-        session["yt_unlocked"] = True
+    # POST → PIN checken
+    pin = (request.form.get("pin") or "").strip()
+    if pin != get_yt_pin():
+        return "<h3 style='color:red;font-family:system-ui;'>Foute PIN</h3>", 403
 
+    # PIN is ok → onthouden in deze sessie
+    session["yt_unlocked"] = True
+
+    # En dan via GET-logica verdergaan (zodat code niet dubbel is)
     return redirect(url_for("yt_launch"))
 
 
@@ -857,11 +948,50 @@ def register_external_routes(app: Flask) -> None:
     except Exception as exc:
         print("   ERROR: dcb_org_export.register_web_routes FAILED:")
         print("   -->", exc)
+    
+    try:
+        print(" - Registering ICO CONVERTER...")
+        convert_to_ico.register_web_routes(app, SETTINGS, TOOLS)
+        print("   OK: ico-converter routes registered")
+    except Exception as exc:
+        print("   ERROR: convert_to_ico.register_web_routes FAILED:")
+        print("   -->", exc)
+        
+    try:
+        print(" - Registering EXE BUILDER...")
+        exe_builder.register_web_routes(app, SETTINGS, TOOLS)
+        print("   OK: exe-builder routes registered")
+    except Exception as exc:
+        print("   ERROR: exe_builder.register_web_routes FAILED:")
+        print("   -->", exc)
+        
+    try:
+        print(" - Registering USEFUL LINKS...")
+        useful_links.register_web_routes(app, SETTINGS, TOOLS)
+        print("   OK: useful-links routes registered")
+    except Exception as exc:
+        print("   ERROR: useful_links.register_web_routes FAILED:")
+        print("   -->", exc)
+
 
 
 # ===== MAIN =====
 
 if __name__ == "__main__":
     register_external_routes(app)
-    app.run(host="0.0.0.0", port=5000, debug=False)
-  
+
+    # Detecteer of we als PyInstaller EXE draaien of gewoon als script
+    is_frozen = getattr(sys, "frozen", False)
+
+    if is_frozen:
+        # EXE-build: andere poort, geen debug
+        port = 5421
+        debug = False
+        print(f">>> Running frozen EXE build op poort {port}")
+    else:
+        # Dev / broncode: standaard poort 5000 + debug
+        port = 5000
+        debug = True
+        print(f">>> Running dev versie op poort {port}")
+
+    app.run(host="0.0.0.0", port=port, debug=debug)

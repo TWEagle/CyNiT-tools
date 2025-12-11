@@ -46,13 +46,23 @@
       "description": "Bewerk settings.json, VOICA1-config en templates centraal via CyNiT Tools."
     },
     {
-      "id": "dcbaas-org-export",
-      "name": "DCBaaS org-export",
+      "id": "exebuilder",
+      "name": "EXE & Installer Builder",
       "type": "web",
-      "web_path": "/dcbaas-org-export",
-      "script": "dcb_org_export.py",
-      "icon_web": "📊",
-      "description": "Zoek alle certificaten per organisatie-code en exporteer naar Excel."
+      "web_path": "/exe-builder",
+      "script": "exe_builder.py",
+      "icon_web": "🧱",
+      "always_visible": true,
+      "description": "Bouw een PyInstaller EXE + Inno Setup installer en optionele ZIP-bundel voor CyNiT Tools."
+    },
+    {
+      "id": "useful_links",
+      "name": "Nuttige links",
+      "type": "web",
+      "web_path": "/links",
+      "script": "useful_links.py",
+      "icon_web": "🔗",
+      "description": "Centrale verzamelplaats van handige URL's (documentatie, dashboards, portalen, ...)."
     }
   ]
 }

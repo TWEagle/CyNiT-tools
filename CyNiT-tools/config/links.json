@@ -1,0 +1,10 @@
+{
+  "links": [
+    {
+      "id": "cynit-tools",
+      "label": "CyNiT Tools repo",
+      "url": "https://github.com/TWEagle/CyNiT-Tools",
+      "info": "Broncode van CyNiT-tools en helpers."
+    }
+  ]
+}
