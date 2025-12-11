@@ -49,7 +49,10 @@ import cert_viewer
 import voica1
 import config_editor
 import dcb_org_export
-import cynit_notify  # nieuwe helper
+import cynit_notify
+import convert_to_ico
+
+convert_to_ico.register_web_routes(app, settings, tools)
 from cynit_notify import send_signal_message, SignalError
 
 BASE_DIR = Path(__file__).parent

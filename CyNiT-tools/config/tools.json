@@ -19,6 +19,15 @@
       "description": "Bekijk alle opgeslagen Markdown exports."
     },
     {
+      "id": "icoconverter",
+      "name": "Image → ICO Converter",
+      "type": "web",
+      "web_path": "/ico",
+      "script": "convert_to_ico.py",
+      "icon_web": "🖼️",
+      "description": "Converteer afbeeldingen (PNG/JPG/GIF) naar .ico met CyNiT look & feel."
+    },
+    {
       "id": "voica1",
       "name": "VOICA1 Certificaten aanmaken",
       "type": "web",
