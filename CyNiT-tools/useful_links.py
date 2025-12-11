@@ -4,13 +4,14 @@ useful_links.py
 
 'Nuttige links' pagina voor CyNiT Tools.
 
-- Config in: config/links.json
-- Functies:
-  * Overzicht van alle links (naam, URL, info)
-  * URL's klikbaar (openen in nieuwe tab)
-  * Form bovenaan om links toe te voegen
-  * Verwijder-knop per link
-  * Copy-knop om URL in clipboard te zetten
+Features:
+- Links met: id, label, url, info, category.
+- Overzicht in tabblad "Links".
+- Toevoegen in tabblad "Beheer / toevoegen".
+- Categorieën:
+  * worden mee opgeslagen in config/links.json
+  * lijst gesorteerd per categorie + naam
+  * bovenaan filterknoppen per categorie (incl. "Alle")
 """
 
 from __future__ import annotations
@@ -18,9 +19,9 @@ from __future__ import annotations
 import json
 import uuid
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Tuple
 
-from flask import Blueprint, render_template_string, request, redirect, url_for, flash
+from flask import Blueprint, render_template_string, request, redirect, url_for
 
 import cynit_theme
 import cynit_layout
@@ -31,23 +32,34 @@ LINKS_PATH = CONFIG_DIR / "links.json"
 
 bp = Blueprint("useful_links", __name__)
 
-# We volgen hetzelfde patroon als config_editor.py
 SETTINGS = cynit_theme.load_settings()
 TOOLS_CFG = cynit_theme.load_tools()
 TOOLS = TOOLS_CFG.get("tools", [])
 
 
+DEFAULT_CATEGORY = "Algemeen"
+
+
+def _ensure_category(link: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Zorgt dat elke link een category heeft.
+    """
+    cat = (link.get("category") or "").strip()
+    if not cat:
+        cat = DEFAULT_CATEGORY
+    link["category"] = cat
+    return link
+
+
 def _default_links() -> Dict[str, Any]:
-    """
-    Default structuur voor links.json als hij nog niet bestaat.
-    """
     return {
         "links": [
             {
                 "id": "example",
                 "label": "Voorbeeldlink",
                 "url": "https://www.vlaanderen.be",
-                "info": "Voorbeeld van een nuttige link. Voeg hier je eigen links aan toe."
+                "info": "Voorbeeld van een nuttige link. Voeg hier je eigen links aan toe.",
+                "category": DEFAULT_CATEGORY,
             }
         ]
     }
@@ -55,7 +67,8 @@ def _default_links() -> Dict[str, Any]:
 
 def _load_links() -> Dict[str, Any]:
     """
-    Leest config/links.json, maakt hem aan indien nodig.
+    Leest config/links.json, maakt hem aan indien nodig,
+    en zorgt dat alle links een category hebben.
     """
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     if not LINKS_PATH.exists():
@@ -66,12 +79,27 @@ def _load_links() -> Dict[str, Any]:
     try:
         raw = json.loads(LINKS_PATH.read_text(encoding="utf-8"))
     except Exception:
-        # Bij corrupte JSON: resetten naar default
         raw = _default_links()
         LINKS_PATH.write_text(json.dumps(raw, indent=2, ensure_ascii=False), encoding="utf-8")
+
     if "links" not in raw or not isinstance(raw["links"], list):
         raw = _default_links()
         LINKS_PATH.write_text(json.dumps(raw, indent=2, ensure_ascii=False), encoding="utf-8")
+
+    # categorieën invullen voor oude items
+    new_links = []
+    changed = False
+    for l in raw["links"]:
+        before = dict(l)
+        l = _ensure_category(l)
+        new_links.append(l)
+        if l != before:
+            changed = True
+
+    raw["links"] = new_links
+    if changed:
+        LINKS_PATH.write_text(json.dumps(raw, indent=2, ensure_ascii=False), encoding="utf-8")
+
     return raw
 
 
@@ -96,13 +124,81 @@ TEMPLATE = """
       margin-bottom: 18px;
     }
 
-    .links-form-card, .links-list-card {
+    .card {
       background: #111111;
       border-radius: 16px;
       padding: 16px 20px;
       box-shadow: 0 14px 30px rgba(0, 0, 0, 0.8);
       border: 1px solid rgba(255, 255, 255, 0.05);
       margin-bottom: 20px;
+    }
+
+    .category-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+
+    .cat-btn {
+      border: none;
+      border-radius: 999px;
+      padding: 4px 12px;
+      font-family: {{ ui.font_buttons }};
+      font-size: 0.8rem;
+      cursor: pointer;
+      background: #050505;
+      color: {{ colors.general_fg }};
+      opacity: 0.75;
+      border: 1px solid #222;
+      transition: all 0.15s ease-out;
+      white-space: nowrap;
+    }
+
+    .cat-btn.active {
+      background: {{ colors.button_bg }};
+      color: {{ colors.button_fg }};
+      opacity: 1;
+      box-shadow: 0 3px 8px rgba(0,0,0,0.8);
+      border-color: rgba(0, 247, 0, 0.4);
+    }
+
+    .tabs {
+      display: inline-flex;
+      border-radius: 999px;
+      padding: 3px;
+      background: #050505;
+      border: 1px solid #222;
+      margin-bottom: 14px;
+    }
+
+    .tab-btn {
+      border: none;
+      border-radius: 999px;
+      padding: 6px 14px;
+      font-family: {{ ui.font_buttons }};
+      font-size: 0.9rem;
+      cursor: pointer;
+      background: transparent;
+      color: {{ colors.general_fg }};
+      opacity: 0.7;
+      transition: all 0.15s ease-out;
+      white-space: nowrap;
+    }
+
+    .tab-btn.active {
+      background: {{ colors.button_bg }};
+      color: {{ colors.button_fg }};
+      opacity: 1;
+      box-shadow: 0 3px 8px rgba(0,0,0,0.8);
+    }
+
+    .tab-pane {
+      display: none;
+    }
+
+    .tab-pane.active {
+      display: block;
     }
 
     .links-form-grid {
@@ -134,10 +230,9 @@ TEMPLATE = """
     }
 
     textarea {
-        min-height: 110px;   /* was 60px */
-        resize: vertical;
+      min-height: 110px;
+      resize: vertical;
     }
-
 
     .btn {
       display: inline-flex;
@@ -233,12 +328,66 @@ TEMPLATE = """
           document.execCommand("copy");
           document.body.removeChild(tmp);
         }
-        // optioneel: kleine visuele feedback (console log)
         console.log("Link gekopieerd:", url);
       } catch (e) {
         console.error("Kon link niet kopiëren:", e);
       }
     }
+
+    document.addEventListener("DOMContentLoaded", function() {
+      const tabButtons = document.querySelectorAll(".tab-btn");
+      const tabPanes = document.querySelectorAll(".tab-pane");
+      const catButtons = document.querySelectorAll(".cat-btn");
+      const rows = document.querySelectorAll("tr[data-category]");
+
+      // Tabs wisselen
+      tabButtons.forEach(function(btn) {
+        btn.addEventListener("click", function() {
+          const target = btn.getAttribute("data-tab");
+          tabButtons.forEach(b => b.classList.remove("active"));
+          tabPanes.forEach(p => p.classList.remove("active"));
+
+          btn.classList.add("active");
+          const pane = document.getElementById(target);
+          if (pane) {
+            pane.classList.add("active");
+          }
+        });
+      });
+
+      // Categorie-filter
+      catButtons.forEach(function(btn) {
+        btn.addEventListener("click", function() {
+          const selected = btn.getAttribute("data-cat");
+          catButtons.forEach(b => b.classList.remove("active"));
+          btn.classList.add("active");
+
+          rows.forEach(function(row) {
+            const rowCat = row.getAttribute("data-category") || "";
+            if (selected === "__all__" || rowCat === selected) {
+              row.style.display = "";
+            } else {
+              row.style.display = "none";
+            }
+          });
+        });
+      });
+
+      // fallback: minstens 1 tab actief
+      if (!document.querySelector(".tab-btn.active") && tabButtons.length > 0) {
+        tabButtons[0].classList.add("active");
+        const firstTarget = tabButtons[0].getAttribute("data-tab");
+        const firstPane = document.getElementById(firstTarget);
+        if (firstPane) {
+          firstPane.classList.add("active");
+        }
+      }
+
+      // fallback: minstens 1 category actief
+      if (!document.querySelector(".cat-btn.active") && catButtons.length > 0) {
+        catButtons[0].classList.add("active");
+      }
+    });
   </script>
 </head>
 <body>
@@ -247,7 +396,7 @@ TEMPLATE = """
     <h1>Nuttige links</h1>
     <p class="links-page-intro muted">
       Centrale verzamelplaats van handige URL's (documentatie, dashboards, portalen, ...).<br>
-      Voeg hier links toe, klik om te openen in een nieuwe tab of kopieer om te delen met collega's.
+      Klik om te openen in een nieuwe tab of kopieer om te delen met collega's.
     </p>
 
     {% for msg, category in flashes %}
@@ -256,74 +405,99 @@ TEMPLATE = """
       </div>
     {% endfor %}
 
-    <div class="links-form-card">
-      <h2>Nieuwe link toevoegen</h2>
-      <form method="post" action="{{ url_for('useful_links.links_page') }}">
-        <input type="hidden" name="action" value="add">
-        <div class="links-form-grid">
-          <div>
-            <label for="label">Naam / label</label>
-            <input type="text" id="label" name="label" placeholder="Bijv. DCBaaS dashboard" required>
-          </div>
-          <div>
-            <label for="url">URL</label>
-            <input type="text" id="url" name="url" placeholder="https://..." required>
-          </div>
-          <div class="full-row">
-            <label for="info">Info / beschrijving</label>
-            <textarea id="info" name="info" placeholder="Korte uitleg wat deze link doet of wanneer je hem gebruikt."></textarea>
-          </div>
-        </div>
-        <div style="margin-top: 12px;">
-          <button type="submit" class="btn">Link toevoegen</button>
-        </div>
-      </form>
-      <p class="muted" style="margin-top:8px;">
-        Alle links worden bewaard in <code>config/links.json</code>.
-      </p>
-    </div>
+    <div class="card">
+      <div class="category-chips">
+        <button type="button" class="cat-btn active" data-cat="__all__">Alle</button>
+        {% for cat in categories %}
+          <button type="button" class="cat-btn" data-cat="{{ cat }}">{{ cat }}</button>
+        {% endfor %}
+      </div>
 
-    <div class="links-list-card">
-      <h2>Overzicht links</h2>
-      {% if links %}
-        <table class="links-list">
-          <thead>
-            <tr>
-              <th style="width: 20%;">Naam</th>
-              <th style="width: 40%;">URL</th>
-              <th>Info</th>
-              <th style="width: 1%;">Acties</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for link in links %}
+      <div class="tabs">
+        <button type="button" class="tab-btn active" data-tab="tab-links">Overzicht</button>
+        <button type="button" class="tab-btn" data-tab="tab-manage">Beheer / toevoegen</button>
+      </div>
+
+      <!-- TAB 1: alleen de lijst met links -->
+      <div id="tab-links" class="tab-pane active">
+        <h2>Links</h2>
+        {% if links %}
+          <table class="links-list">
+            <thead>
               <tr>
-                <td>{{ link.label }}</td>
-                <td>
-                  <a href="{{ link.url }}" target="_blank" rel="noopener noreferrer" class="link-url">
-                    {{ link.url }}
-                  </a>
-                </td>
-                <td>{{ link.info }}</td>
-                <td class="actions-cell">
-                  <button type="button" class="btn" onclick="copyLinkToClipboard('{{ link.url }}')">
-                    Kopieer
-                  </button>
-                  <form method="post" action="{{ url_for('useful_links.links_page') }}" style="display:inline;">
-                    <input type="hidden" name="action" value="delete">
-                    <input type="hidden" name="link_id" value="{{ link.id }}">
-                    <button type="submit" class="btn" style="margin-left:4px;">
-                      Verwijder
-                    </button>
-                  </form>
-                </td>
+                <th style="width: 14%;">Categorie</th>
+                <th style="width: 20%;">Naam</th>
+                <th style="width: 38%;">URL</th>
+                <th>Info</th>
+                <th style="width: 1%;">Acties</th>
               </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      {% else %}
-        <p class="muted">Er zijn nog geen links geconfigureerd. Voeg er hierboven een toe.</p>
-      {% endif %}
+            </thead>
+            <tbody>
+              {% for link in links %}
+                <tr data-category="{{ link.category }}">
+                  <td>{{ link.category }}</td>
+                  <td>{{ link.label }}</td>
+                  <td>
+                    <a href="{{ link.url }}" target="_blank" rel="noopener noreferrer" class="link-url">
+                      {{ link.url }}
+                    </a>
+                  </td>
+                  <td>{{ link.info }}</td>
+                  <td class="actions-cell">
+                    <button type="button" class="btn" onclick="copyLinkToClipboard('{{ link.url }}')">
+                      Kopieer
+                    </button>
+                    <form method="post" action="{{ url_for('useful_links.links_page') }}" style="display:inline;">
+                      <input type="hidden" name="action" value="delete">
+                      <input type="hidden" name="link_id" value="{{ link.id }}">
+                      <button type="submit" class="btn" style="margin-left:4px;">
+                        Verwijder
+                      </button>
+                    </form>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% else %}
+          <p class="muted">
+            Er zijn nog geen links geconfigureerd.
+            Voeg er eentje toe in het tabblad <strong>Beheer / toevoegen</strong>.
+          </p>
+        {% endif %}
+      </div>
+
+      <!-- TAB 2: formulier om links toe te voegen -->
+      <div id="tab-manage" class="tab-pane">
+        <h2>Link toevoegen / beheren</h2>
+        <form method="post" action="{{ url_for('useful_links.links_page') }}">
+          <input type="hidden" name="action" value="add">
+          <div class="links-form-grid">
+            <div>
+              <label for="label">Naam / label <span class="muted">(verplicht)</span></label>
+              <input type="text" id="label" name="label" placeholder="Bijv. DCBaaS dashboard" required>
+            </div>
+            <div>
+              <label for="url">URL <span class="muted">(verplicht)</span></label>
+              <input type="text" id="url" name="url" placeholder="https://..." required>
+            </div>
+            <div>
+              <label for="category">Categorie <span class="muted">(optioneel, bijv. DCBaaS, VO, Tools)</span></label>
+              <input type="text" id="category" name="category" placeholder="Bijv. DCBaaS, VO, Tools">
+            </div>
+            <div class="full-row">
+              <label for="info">Info / beschrijving <span class="muted">(optioneel)</span></label>
+              <textarea id="info" name="info" placeholder="Korte uitleg wat deze link doet of wanneer je hem gebruikt."></textarea>
+            </div>
+          </div>
+          <div style="margin-top: 12px;">
+            <button type="submit" class="btn">Link toevoegen</button>
+          </div>
+        </form>
+        <p class="muted" style="margin-top:8px;">
+          Alle links worden bewaard in <code>config/links.json</code>.
+        </p>
+      </div>
     </div>
   </div>
   {{ footer|safe }}
@@ -349,16 +523,28 @@ def links_page():
 
     data = _load_links()
     links_list: List[Dict[str, Any]] = data.get("links", [])
+    links_list = [_ensure_category(l) for l in links_list]
 
-    flashes: List[tuple[str, str]] = []
+    # categorieën + sortering
+    categories = sorted({l.get("category", DEFAULT_CATEGORY) for l in links_list})
+    links_sorted = sorted(
+        links_list,
+        key=lambda l: (
+            (l.get("category") or DEFAULT_CATEGORY).lower(),
+            (l.get("label") or "").lower(),
+        ),
+    )
+
+    flashes: List[Tuple[str, str]] = []
 
     if request.method == "POST":
-        action = request.form.get("action", "").strip().lower()
+        action = (request.form.get("action") or "").strip().lower()
 
         if action == "add":
             label = (request.form.get("label") or "").strip()
             url = (request.form.get("url") or "").strip()
             info = (request.form.get("info") or "").strip()
+            category = (request.form.get("category") or "").strip() or DEFAULT_CATEGORY
 
             if not label or not url:
                 flashes.append(("Naam en URL zijn verplicht.", "error"))
@@ -368,12 +554,11 @@ def links_page():
                     "label": label,
                     "url": url,
                     "info": info,
+                    "category": category,
                 }
                 links_list.append(new_link)
                 data["links"] = links_list
                 _save_links(data)
-                flashes.append((f"Link '{label}' toegevoegd.", "ok"))
-                # Kleine redirect om F5-resubmit te vermijden
                 return redirect(url_for("useful_links.links_page"))
 
         elif action == "delete":
@@ -383,10 +568,19 @@ def links_page():
                 links_list = new_list
                 data["links"] = links_list
                 _save_links(data)
-                flashes.append(("Link verwijderd.", "ok"))
-            else:
-                flashes.append(("Link niet gevonden.", "error"))
             return redirect(url_for("useful_links.links_page"))
+
+        # na POST willen we de nieuwe state opnieuw inladen/sorteren
+        links_list = data.get("links", [])
+        links_list = [_ensure_category(l) for l in links_list]
+        categories = sorted({l.get("category", DEFAULT_CATEGORY) for l in links_list})
+        links_sorted = sorted(
+            links_list,
+            key=lambda l: (
+                (l.get("category") or DEFAULT_CATEGORY).lower(),
+                (l.get("label") or "").lower(),
+            ),
+        )
 
     return render_template_string(
         TEMPLATE,
@@ -396,13 +590,11 @@ def links_page():
         footer=footer_html,
         colors=colors,
         ui=ui,
-        links=links_list,
+        links=links_sorted,
+        categories=categories,
         flashes=flashes,
     )
 
 
 def register_web_routes(app, settings, tools):
-    """
-    Wordt aangeroepen door ctools.register_external_routes(app).
-    """
     app.register_blueprint(bp)
