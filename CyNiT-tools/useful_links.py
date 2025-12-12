@@ -313,9 +313,17 @@ TEMPLATE = r"""
 
       const editOpen = isVisible(editModal);
       const renameOpen = isVisible(renameModal);
+      const anyOpen = editOpen || renameOpen;
 
       // ESC sluit modals
-      if (ev.key === 'Escape') {
+      if (ev.key === 'Escape' && anyOpen) {
+        ev.preventDefault();
+        closeAllModals();
+        return;
+      }
+
+      // Ctrl+W / Cmd+W = sluit modal (anders browser tab sluiten)
+      if ((ev.ctrlKey || ev.metaKey) && (ev.key === 'w' || ev.key === 'W') && anyOpen) {
         ev.preventDefault();
         closeAllModals();
         return;
@@ -341,11 +349,29 @@ TEMPLATE = r"""
         }
       }
 
-      // Gewone Enter mag NOOIT submitten in modals
-      if (ev.key === 'Enter' && (editOpen || renameOpen)) {
-        const tag = ev.target?.tagName?.toLowerCase();
+      // Ctrl+S / Cmd+S = submit actieve modal (en browser "Save page" blokkeren)
+      if ((ev.ctrlKey || ev.metaKey) && (ev.key === 's' || ev.key === 'S')) {
+        if (editOpen) {
+          const form = editModal.querySelector('form');
+          if (form) {
+            ev.preventDefault();
+            form.requestSubmit ? form.requestSubmit() : form.submit();
+          }
+          return;
+        }
+        if (renameOpen) {
+          const form = renameModal.querySelector('form');
+          if (form) {
+            ev.preventDefault();
+            form.requestSubmit ? form.requestSubmit() : form.submit();
+          }
+          return;
+        }
+      }
 
-        // Enter toestaan op echte buttons (bv. als focus op Opslaan staat)
+      // Gewone Enter mag NOOIT submitten in modals (behalve als focus op button)
+      if (ev.key === 'Enter' && anyOpen) {
+        const tag = ev.target?.tagName?.toLowerCase();
         if (tag !== 'button') {
           ev.preventDefault();
           return;
