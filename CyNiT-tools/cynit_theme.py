@@ -150,38 +150,51 @@ def load_helpfiles() -> dict:
         HELPFILES_PATH.write_text(json.dumps(raw, indent=2), encoding="utf-8")
     return raw
 
-
 def load_settings() -> dict:
     """
     Laadt settings.json, merged met defaults, en past daarna de actieve profile toe
     (colors/paths/ui). Resultaat heeft top-level 'colors', 'paths', 'ui' die
     al het actieve profiel bevatten, plus 'active_profile' en 'profiles' zelf.
+
+    Extra defensief:
+    - als het bestand corrupt is of geen dict is → begin met lege dict
+    - als 'colors', 'paths' of 'ui' ontbreken → vul defaults in
     """
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     base_default = default_settings()
 
+    # 1) rauwe JSON veilig inlezen
     if not SETTINGS_PATH.exists():
+        # eerste run → schrijf defaults en gebruik die
         SETTINGS_PATH.write_text(json.dumps(base_default, indent=2), encoding="utf-8")
         return base_default
 
     try:
         raw = json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict):
+            raw = {}
     except Exception:
-        # kapotte settings -> reset naar default
-        SETTINGS_PATH.write_text(json.dumps(base_default, indent=2), encoding="utf-8")
-        return base_default
+        # bestand bestaat maar is corrupt → terugvallen op lege dict
+        raw = {}
 
-    # Stap 1: defaults + raw samenvoegen
+    # 2) defaults + raw mergen
     merged = deep_merge(base_default, raw)
 
-    # Stap 2: actieve profile toepassen indien aanwezig
-    active_profile = raw.get("active_profile")
-    profiles = raw.get("profiles", {})
+    # 3) Defensief: zorg dat top-level 'colors', 'paths', 'ui' altijd bestaan
+    if "colors" not in merged or not isinstance(merged["colors"], dict):
+        merged["colors"] = base_default["colors"].copy()
+    if "paths" not in merged or not isinstance(merged["paths"], dict):
+        merged["paths"] = base_default["paths"].copy()
+    if "ui" not in merged or not isinstance(merged["ui"], dict):
+        merged["ui"] = base_default["ui"].copy()
+
+    # 4) Profielen toepassen (optioneel)
+    active_profile = merged.get("active_profile")
+    profiles = merged.get("profiles", {})
 
     if isinstance(profiles, dict) and active_profile in profiles:
         prof = profiles[active_profile]
 
-        # Enkel relevante keys overriden
         if "colors" in prof and isinstance(prof["colors"], dict):
             merged["colors"] = deep_merge(merged.get("colors", {}), prof["colors"])
         if "paths" in prof and isinstance(prof["paths"], dict):
@@ -189,11 +202,11 @@ def load_settings() -> dict:
         if "ui" in prof and isinstance(prof["ui"], dict):
             merged["ui"] = deep_merge(merged.get("ui", {}), prof["ui"])
 
-    # Stap 3: profiel-info bijhouden op top-level
+    # 5) Profiel-info netjes bijhouden
     merged["active_profile"] = active_profile
-    merged["profiles"] = profiles
+    merged["profiles"] = profiles if isinstance(profiles, dict) else {}
 
-    # Terug wegschrijven (zodat nieuwe defaults ook persistent zijn)
+    # 6) terug wegschrijven (zodat nieuwe defaults ook persistent zijn)
     SETTINGS_PATH.write_text(json.dumps(merged, indent=2), encoding="utf-8")
     return merged
 

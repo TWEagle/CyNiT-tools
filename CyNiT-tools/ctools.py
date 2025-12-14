@@ -207,7 +207,9 @@ def reload_config() -> None:
 
     # 5) Globale TOOLS bijwerken
     TOOLS = tools_local
-
+    
+# 🔥 Belangrijk: initial load bij startup
+reload_config()
 
 # ===== FLASK-APP =====
 

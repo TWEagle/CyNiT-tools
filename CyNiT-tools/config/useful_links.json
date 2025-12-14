@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "links": [
+    {
+      "id": "defdb7cc-38d0-469e-a36b-9ad05a144bd4",
+      "name": "CyNiT Tools Github",
+      "url": "https://github.com/TWEagle/CyNiT-Tools",
+      "category": "CyNiT",
+      "info": "",
+      "created": "2025-12-12T08:27:28",
+      "updated": "2025-12-12T08:27:28"
+    }
+  ],
+  "categories": {
+    "General": {
+      "color": "#0031f5"
+    },
+    "CyNiT": {
+      "color": "#00fbff"
+    }
+  },
+  "prefs": {
+    "hide_general": true,
+    "default_category": "General",
+    "hide_default_category": true
+  }
+}
