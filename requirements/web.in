@@ -1,0 +1,5 @@
+# Web hub + web tools
+Flask
+flask-cors
+Werkzeug
+Jinja2

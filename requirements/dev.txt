@@ -1,0 +1,12 @@
+-r base.txt
+-r web.txt
+-r build.txt
+
+matplotlib
+numpy
+requests_ntlm
+SharePlum
+tqdm
+pyperclip
+PyPDF2
+striprtf

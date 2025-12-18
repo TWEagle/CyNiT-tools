@@ -1,0 +1,15 @@
+# Core runtime dependencies (minimal set to run CyNiT tools)
+requests
+cryptography
+pyOpenSSL
+openpyxl
+pandas
+XlsxWriter
+Pillow
+Markdown
+tqdm
+pyperclip
+PyPDF2
+striprtf
+dnspython
+lxml

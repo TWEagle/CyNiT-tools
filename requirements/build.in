@@ -1,0 +1,12 @@
+# Build / packaging tools (EXE/installer)
+pyinstaller
+pyinstaller-hooks-contrib
+cx_Freeze
+lief
+altgraph
+pefile
+cabarchive
+freeze-core
+build
+wheel
+setuptools

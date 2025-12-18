@@ -1,0 +1,7 @@
+# Microsoft / SharePoint / NTLM stack (only if you use these features)
+msal
+Office365-REST-Python-Client
+requests_ntlm
+requests-toolbelt
+SharePlum
+pyspnego

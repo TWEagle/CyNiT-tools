@@ -1,0 +1,10 @@
+# Full workstation install (everything)
+-r base.in
+-r web.in
+-r desktop.in
+-r sharepoint.in
+-r build.in
+
+matplotlib
+numpy
+git-filter-repo

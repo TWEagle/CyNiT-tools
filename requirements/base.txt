@@ -1,0 +1,15 @@
+requests
+cryptography
+pyOpenSSL
+openpyxl
+pandas
+XlsxWriter
+Pillow
+Markdown
+ttkbootstrap
+PyJWT
+jwcrypto
+dnspython
+lxml
+Office365-REST-Python-Client
+msal

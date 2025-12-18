@@ -1,0 +1,8 @@
+pyinstaller
+pyinstaller-hooks-contrib
+cx_Freeze
+lief
+altgraph
+pefile
+cabarchive
+freeze-core
