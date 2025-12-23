@@ -63,6 +63,13 @@
       "script": "useful_links.py",
       "icon_web": "🔗",
       "description": "Centrale verzamelplaats van handige URL's (documentatie, dashboards, portalen, ...)."
+    },
+    {
+      "id": "dcbaas_oneclick",
+      "title": "DCBaaS OneClick",
+      "route": "/dcbaas",
+      "icon": "plug",
+      "category": "DCBaaS"
     }
   ]
 }

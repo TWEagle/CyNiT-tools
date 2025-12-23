@@ -1,0 +1,36 @@
+{
+  "defaults": {
+    "origin": "localhost",
+    "iss_sub": "612bf17a-ebb0-45c3-9225-d04f1067a0b0",
+    "kid": "",
+    "alg": "RS256",
+    "exp_offset": 300
+  },
+  "environments": {
+    "DEV": {
+      "label": "DEV",
+      "base_url": "https://extapi.dcb-dev.vlaanderen.be",
+      "api_prefix": "/dev",
+      "token_url": "https://authenticatie-ti.vlaanderen.be/op/v1/token",
+      "jwt_aud": "https://authenticatie-ti.vlaanderen.be/op",
+      "token_audience": ""
+    },
+    "TI": {
+      "label": "T&I",
+      "base_url": "https://extapi.dcb-ti.vlaanderen.be",
+      "api_prefix": "/ti",
+      "token_url": "https://authenticatie-ti.vlaanderen.be/op/v1/token",
+      "jwt_aud": "https://authenticatie-ti.vlaanderen.be/op",
+      "token_audience": ""
+    },
+    "PROD": {
+      "label": "PROD",
+      "base_url": "https://extapi.dcb.vlaanderen.be",
+      "api_prefix": "/prod",
+      "token_url": "https://authenticatie.vlaanderen.be/op/v1/token",
+      "jwt_aud": "https://authenticatie.vlaanderen.be/op",
+      "token_audience": ""
+    }
+  },
+  "postman_collection_path": "config/dcbaas_postman_collection.json"
+}
