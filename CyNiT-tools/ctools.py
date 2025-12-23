@@ -976,15 +976,11 @@ def register_external_routes(app: Flask) -> None:
         print("   -->", exc)
 
 
-
 # ===== MAIN =====
-
 if __name__ == "__main__":
     register_external_routes(app)
-
     # Detecteer of we als PyInstaller EXE draaien of gewoon als script
     is_frozen = getattr(sys, "frozen", False)
-
     if is_frozen:
         # EXE-build: andere poort, geen debug
         port = 5421
@@ -996,4 +992,15 @@ if __name__ == "__main__":
         debug = True
         print(f">>> Running dev versie op poort {port}")
 
-    app.run(host="0.0.0.0", port=port, debug=debug)
+    # ==== HTTPS indien cert/key aanwezig ====
+    ssl_ctx = None
+    cert_path = BASE_DIR / "cert.pem"
+    key_path  = BASE_DIR / "key.pem"
+    if cert_path.exists() and key_path.exists():
+        ssl_ctx = (str(cert_path), str(key_path))
+        print("HTTPS ingeschakeld (cert.pem + key.pem gevonden).")
+    else:
+        print("HTTPS niet beschikbaar: cert.pem/key.pem ontbreken -> HTTP fallback.")
+
+    # Start app (HTTP of HTTPS)
+    app.run(host="0.0.0.0", port=port, debug=debug, ssl_context=ssl_ctx)
