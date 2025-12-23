@@ -65,11 +65,13 @@
       "description": "Centrale verzamelplaats van handige URL's (documentatie, dashboards, portalen, ...)."
     },
     {
-      "id": "dcbaas_oneclick",
-      "title": "DCBaaS OneClick",
-      "route": "/dcbaas",
-      "icon": "plug",
-      "category": "DCBaaS"
+      "id": "dcbaas_api",
+      "name": "DCBaaS API",
+      "type": "web",
+      "web_path": "/dcbaas-api",
+      "script": "dcbaas_api.py",
+      "icon_web": "🔌",
+      "description": "DEV / T&I / PROD: one-click connect (JWT→token), Postman runner (multi-level folders), apps & cert acties + Connect & Run Health smoke test."
     }
   ]
 }

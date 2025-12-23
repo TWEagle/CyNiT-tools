@@ -54,7 +54,7 @@ import cynit_notify
 import convert_to_ico
 import exe_builder
 import useful_links
-import dcbaas_oneclick
+import dcbaas_api
 
 from cynit_notify import send_signal_message, SignalError
 
@@ -977,11 +977,11 @@ def register_external_routes(app: Flask) -> None:
         print("   -->", exc)
 
     try:
-        print(" - Registering DCBAAS ONECLICK...")
-        dcbaas_oneclick.register_web_routes(app, SETTINGS, TOOLS)
-        print("   OK: dcbaas_oneclick routes registered")
+        print(" - Registering DCBAAS API...")
+        dcbaas_api.register_web_routes(app, SETTINGS, TOOLS)
+        print("   OK: dcbaas_api routes registered")
     except Exception as exc:
-        print("   ERROR: dcbaas_oneclick.register_web_routes FAILED:")
+        print("   ERROR: dcbaas_api.register_web_routes FAILED:")
         print("   -->", exc)
 
 
