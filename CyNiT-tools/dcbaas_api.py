@@ -1,24 +1,20 @@
 #!/usr/bin/env python3
-# CyNiT Tools — DCBaaS API (DEV / T&I / PROD) — All-in-one tool
+# CyNiT Tools — DCBaaS API (DEV / T&I / PROD) — OneClick + Postman Runner
 #
-# Features:
-# - One-click connect per environment (DEV/TI/PROD): upload key (PFX/PEM/JWK) -> JWT -> access_token
-# - Optional "Connect & Run Health" smoke test
-# - Postman collection Runner (multi-level folders)
-# - Application actions + Certificate add
+# Web tool voor CyNiT Tools hub:
+# - /dcbaas-api              : UI
+# - /dcbaas-api/connect      : JWT->access_token (per environment)
+# - /dcbaas-api/run          : Postman request runner
+# - /dcbaas-api/app          : application acties (add/update/delegate/delete/health)
+# - /dcbaas-api/cert/add     : certificate add (CSR paste/upload)
 #
-# File: dcbaas_api.py
-# Routes:
-#   GET  /dcbaas
-#   POST /dcbaas/connect
-#   POST /dcbaas/run
-#   POST /dcbaas/app
-#   POST /dcbaas/cert/add
+# Vereist:
+#   pip install requests pyjwt cryptography jwcrypto
 #
-# Config files:
-#   config/dcbaas_api.json              (optional; auto-created on first connect)
-#   config/dcbaas_postman_collection.json (your Postman collection)
-
+# Integreer in ctools.py via:
+#   import dcbaas_api
+#   dcbaas_api.register_web_routes(app, SETTINGS, TOOLS)
+#
 from __future__ import annotations
 
 import base64
@@ -29,26 +25,27 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-import jwt
 import requests
-from flask import Blueprint, Flask, redirect, render_template_string, request, url_for
+from flask import Blueprint, Flask, request, render_template_string
 
 import cynit_layout
 import cynit_theme
 
+import jwt
 from cryptography.hazmat.primitives.serialization import load_pem_private_key
 from cryptography.hazmat.primitives.serialization.pkcs12 import load_key_and_certificates
 from jwcrypto import jwk
-
 
 # -------------------- Postman parsing --------------------
 
 _VAR_RE = re.compile(r"{{\s*([^}]+?)\s*}}")
 
-
 @dataclass
 class PMRequest:
-    name: str              # full path "Folder / Subfolder :: Request"
+    key: str               # unieke key (folderpad + name)
+    name: str              # display name (zonder folder prefix)
+    folder: List[str]      # folder stack
+    depth: int             # folder depth
     method: str
     url_raw: str
     headers: List[Dict[str, str]]
@@ -56,17 +53,13 @@ class PMRequest:
     body_raw: str
     body_urlencoded: List[Dict[str, Any]]
 
-
 def _apply_vars(text: str, variables: Dict[str, str]) -> str:
     if not text:
         return ""
-
     def repl(m):
         key = m.group(1).strip()
         return variables.get(key, m.group(0))
-
     return _VAR_RE.sub(repl, text)
-
 
 def _safe_json_pretty(text: str) -> str:
     try:
@@ -75,8 +68,12 @@ def _safe_json_pretty(text: str) -> str:
     except Exception:
         return text
 
-
 def _load_collection(path: Path) -> Tuple[str, List[PMRequest], List[str]]:
+    """
+    Laadt een Postman collection (v2.1). Ondersteunt nested folders.
+    Returns:
+      (collection_name, requests, variables_found)
+    """
     if not path.exists():
         return ("(collection niet gevonden)", [], [])
 
@@ -94,7 +91,7 @@ def _load_collection(path: Path) -> Tuple[str, List[PMRequest], List[str]]:
 
             # Folder?
             if "item" in it and isinstance(it.get("item"), list):
-                fname = it.get("name") or "Folder"
+                fname = (it.get("name") or "Folder").strip()
                 walk(it["item"], folder_stack + [fname])
                 continue
 
@@ -111,6 +108,7 @@ def _load_collection(path: Path) -> Tuple[str, List[PMRequest], List[str]]:
             body_raw = body.get("raw") or ""
             body_urlencoded = body.get("urlencoded") or []
 
+            # vars detectie
             for s in [
                 url_raw,
                 json.dumps(headers, ensure_ascii=False),
@@ -120,17 +118,23 @@ def _load_collection(path: Path) -> Tuple[str, List[PMRequest], List[str]]:
                 for m in _VAR_RE.findall(s or ""):
                     vars_found.add(m.strip())
 
-            display = it.get("name") or "(unnamed)"
-            folder = " / ".join(folder_stack) if folder_stack else ""
-            full_name = f"{folder} :: {display}" if folder else display
+            display = (it.get("name") or "(unnamed)").strip()
+            folder_txt = " / ".join(folder_stack)
+            key = f"{folder_txt} :: {display}" if folder_txt else display
 
             reqs.append(
                 PMRequest(
-                    name=full_name,
+                    key=key,
+                    name=display,
+                    folder=folder_stack,
+                    depth=len(folder_stack),
                     method=method,
                     url_raw=url_raw,
-                    headers=[{"key": h.get("key", ""), "value": h.get("value", "")}
-                             for h in headers if isinstance(h, dict)],
+                    headers=[
+                        {"key": h.get("key", ""), "value": h.get("value", "")}
+                        for h in headers
+                        if isinstance(h, dict)
+                    ],
                     body_mode=body_mode,
                     body_raw=body_raw,
                     body_urlencoded=body_urlencoded if isinstance(body_urlencoded, list) else [],
@@ -139,13 +143,13 @@ def _load_collection(path: Path) -> Tuple[str, List[PMRequest], List[str]]:
 
     walk(data.get("item", []) or [], [])
 
-    # common vars we expect
+    # "bekende" variabelen die we in de UI automatisch invullen
     for d in ["url", "DCB TOKEN", "Origin"]:
         vars_found.add(d)
 
-    reqs.sort(key=lambda r: r.name.lower())
+    # sorteer op folderpad + requestnaam
+    reqs.sort(key=lambda r: ("/".join(r.folder).lower(), r.name.lower(), r.method))
     return (name, reqs, sorted(vars_found, key=lambda x: x.lower()))
-
 
 def _headers_to_dict(headers: List[Dict[str, str]], variables: Dict[str, str]) -> Dict[str, str]:
     out: Dict[str, str] = {}
@@ -156,7 +160,6 @@ def _headers_to_dict(headers: List[Dict[str, str]], variables: Dict[str, str]) -
             continue
         out[k] = _apply_vars(v, variables)
     return out
-
 
 def _build_body(pm: PMRequest, variables: Dict[str, str]) -> Tuple[Optional[str], Optional[Dict[str, str]], Optional[str]]:
     mode = (pm.body_mode or "").lower()
@@ -173,17 +176,20 @@ def _build_body(pm: PMRequest, variables: Dict[str, str]) -> Tuple[Optional[str]
             v = str(kv.get("value") or "")
             form[k] = _apply_vars(v, variables)
         return (None, form, "application/x-www-form-urlencoded")
-
     if mode == "raw":
         raw = _apply_vars(pm.body_raw or "", variables)
         return (raw, None, None)
-
     return (None, None, None)
-
 
 # -------------------- Auth helpers (JWT -> access_token) --------------------
 
 def _load_private_key_from_upload(filename: str, data: bytes, password: Optional[str]) -> Any:
+    """
+    Ondersteunt:
+      - .jwk/.json: jwcrypto JWK
+      - .pem/.key : PEM private key
+      - .pfx/.p12 : PKCS#12 met private key
+    """
     ext = (Path(filename).suffix or "").lower()
     pwd = password.encode("utf-8") if password else None
 
@@ -204,17 +210,18 @@ def _load_private_key_from_upload(filename: str, data: bytes, password: Optional
 
     raise ValueError("Onbekend sleuteltype. Gebruik .jwk/.json, .pem/.key of .pfx/.p12")
 
-
 def _build_jwt(iss_sub: str, aud: str, key, alg: str = "RS256", kid: Optional[str] = None, exp_offset: int = 300) -> str:
     now = int(time.time())
-    claims = {"iss": iss_sub, "sub": iss_sub, "aud": aud, "iat": now - 5, "exp": now + int(exp_offset)}
+    claims = {"iss": iss_sub, "sub": iss_sub, "aud": aud, "iat": now, "exp": now + int(exp_offset)}
     headers = {"typ": "JWT", "alg": alg}
     if kid:
         headers["kid"] = kid
     return jwt.encode(payload=claims, key=key, algorithm=alg, headers=headers)
 
-
 def _request_access_token(token_url: str, jwt_token: str, audience: str, timeout: int = 30) -> str:
+    """
+    OAuth2 client_credentials met client_assertion (JWT bearer).
+    """
     headers = {"Content-Type": "application/x-www-form-urlencoded"}
     data = {
         "grant_type": "client_credentials",
@@ -227,27 +234,92 @@ def _request_access_token(token_url: str, jwt_token: str, audience: str, timeout
     j = resp.json()
     return j.get("access_token", "") or ""
 
+# -------------------- HTTP request runner --------------------
 
-def _as_bearer(token: str) -> str:
-    t = (token or "").strip()
+def _parse_headers_text(txt: str) -> Dict[str, str]:
+    out: Dict[str, str] = {}
+    for line in (txt or "").splitlines():
+        line = line.strip()
+        if not line or ":" not in line:
+            continue
+        k, v = line.split(":", 1)
+        out[k.strip()] = v.strip()
+    return out
+
+def _do_request(method: str, url: str, headers: Dict[str, str], body_text: str, timeout: int = 60) -> Dict[str, Any]:
+    """
+    Voert de request uit. Body kan JSON, form lines (k=v) of raw text zijn.
+    Retourneert een dict (ok/status/elapsed_ms/headers/body).
+    """
+    data = None
+    json_payload = None
+
+    if body_text and body_text.strip():
+        # JSON?
+        try:
+            json_payload = json.loads(body_text)
+        except Exception:
+            # Form? (k=v per lijn)
+            if "\n" in body_text and "=" in body_text and "{" not in body_text and "[" not in body_text:
+                form: Dict[str, str] = {}
+                for line in body_text.splitlines():
+                    if "=" not in line:
+                        continue
+                    k, v = line.split("=", 1)
+                    form[k.strip()] = v.strip()
+                data = form
+            else:
+                data = body_text.encode("utf-8")
+
+    t0 = time.time()
+    try:
+        resp = requests.request(method=method, url=url, headers=headers, json=json_payload, data=data, timeout=timeout)
+        elapsed_ms = int((time.time() - t0) * 1000)
+        return {
+            "ok": bool(resp.ok),
+            "status": f"{resp.status_code} {resp.reason}",
+            "elapsed_ms": elapsed_ms,
+            "headers": "\n".join([f"{k}: {v}" for k, v in resp.headers.items()]),
+            "body": _safe_json_pretty(resp.text),
+        }
+    except Exception as e:
+        return {"ok": False, "status": "REQUEST FAILED", "elapsed_ms": -1, "headers": "", "body": str(e)}
+
+# -------------------- CSR helpers --------------------
+
+def _csr_to_b64(csr_text: str, csr_file) -> str:
+    """
+    CSR input:
+      - upload: base64(filebytes)
+      - paste PEM: strip header/footer + whitespace
+      - paste base64/DER: strip whitespace
+    """
+    if csr_file and getattr(csr_file, "filename", ""):
+        b = csr_file.read()
+        return base64.b64encode(b).decode("utf-8")
+
+    t = (csr_text or "").strip()
     if not t:
         return ""
-    if t.lower().startswith("bearer "):
-        return t
-    return "Bearer " + t
 
+    if "BEGIN" in t and "CERTIFICATE REQUEST" in t:
+        lines = [ln.strip() for ln in t.splitlines() if ln and "BEGIN" not in ln and "END" not in ln]
+        return "".join(lines)
+
+    return re.sub(r"\s+", "", t)
 
 # -------------------- Config + state --------------------
 
 bp = Blueprint("dcbaas_api", __name__)
 
 STATE: Dict[str, Any] = {
-    "tokens": {},      # env_id -> raw access_token (no Bearer)
-    "last_resp": None,
-    "last_auth": None,
+    "tokens": {},        # env_id -> token
+    "last_resp": None,   # laatst uitgevoerde request (runner/apps/certs)
+    "last_auth": None,   # connect status
+    "last_smoke": None,  # smoke result
 }
 
-CERT_TEMPLATES = [
+TEMPLATES = [
     "SSL Server",
     "SSL Client",
     "SSL Signing",
@@ -257,14 +329,18 @@ CERT_TEMPLATES = [
     "Andere",
 ]
 
-
 def _cfg_path() -> Path:
     return Path(__file__).parent / "config" / "dcbaas_api.json"
 
-
 def _default_cfg() -> Dict[str, Any]:
     return {
-        "defaults": {"origin": "localhost", "iss_sub": "", "kid": "", "alg": "RS256", "exp_offset": 300},
+        "defaults": {
+            "origin": "localhost",
+            "iss_sub": "",
+            "kid": "",
+            "alg": "RS256",
+            "exp_offset": 300,
+        },
         "environments": {
             "DEV": {
                 "label": "DEV",
@@ -291,10 +367,11 @@ def _default_cfg() -> Dict[str, Any]:
                 "token_audience": "",
             },
         },
+        # Zet hier je collection neer (binnen je repo is dit typisch config/dcbaas_postman_collection.json)
         "postman_collection_path": "config/dcbaas_postman_collection.json",
+        # Health endpoint voor smoke test
         "health_path": "/health",
     }
-
 
 def load_cfg() -> Dict[str, Any]:
     p = _cfg_path()
@@ -315,23 +392,25 @@ def load_cfg() -> Dict[str, Any]:
             pass
     return cfg
 
-
 def _env(cfg: Dict[str, Any], env_id: str) -> Dict[str, Any]:
     envs = cfg.get("environments", {}) or {}
     return envs.get(env_id) or envs.get("DEV") or {}
 
+def _persist_cfg(cfg: Dict[str, Any]) -> None:
+    p = _cfg_path()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(cfg, indent=2, ensure_ascii=False), encoding="utf-8")
 
 # -------------------- UI --------------------
 
-TEMPLATE = r"""
-<!doctype html>
+TEMPLATE = r"""<!doctype html>
 <html lang="nl">
 <head>
   <meta charset="utf-8">
   <title>CyNiT - DCBaaS API</title>
   <style>
     {{ base_css|safe }}
-    .wrap { display: grid; grid-template-columns: 380px 1fr; gap: 14px; }
+    .wrap { display: grid; grid-template-columns: 420px 1fr; gap: 14px; }
     .panel { background:#0b0b0b; border:1px solid #222; border-radius:16px; padding:12px; box-shadow:0 10px 26px rgba(0,0,0,0.55); }
     .tabs { display:flex; gap:8px; flex-wrap:wrap; }
     .tab { padding:6px 12px; border-radius:999px; border:1px solid #333; background:#070707; cursor:pointer; text-decoration:none; display:inline-block; }
@@ -349,24 +428,21 @@ TEMPLATE = r"""
     .danger { background:#2a0b0b; border-color:#5a1f1f; }
     .tag { display:inline-block; padding:2px 8px; border-radius:999px; border:1px solid #333; font-size:0.82rem; margin-right:6px; }
     .muted { color:#aaa; font-size:0.9em; }
-    pre { white-space:pre-wrap; word-wrap:break-word; background:#050505; border:1px solid #222; border-radius:16px; padding:10px; overflow:auto; max-height:420px; }
+    pre { white-space:pre-wrap; word-wrap:break-word; background:#050505; border:1px solid #222; border-radius:16px; padding:10px; overflow:auto; max-height:460px; }
+    .reqlist a{ display:block; padding:8px 10px; border-radius:12px; text-decoration:none; border:1px solid transparent; margin-bottom:6px; background:#080808; }
+    .reqlist a:hover{ border-color:#333; background:#111; }
+    .reqlist a.active{ border-color:#444; background:#151515; }
     .ok { color:#86efac; } .err { color:#fecaca; }
     .small { font-size:0.85em; }
-
-    details.folder { border:1px solid #222; border-radius:14px; padding:8px; background:#070707; margin-bottom:10px; }
-    details.folder > summary { cursor:pointer; user-select:none; font-weight:800; color:#cbd5e1; }
-    details.folder summary .count { font-weight:600; color:#7dd3fc; margin-left:6px; }
-    .reqitem { display:block; padding:8px 10px; border-radius:12px; text-decoration:none; border:1px solid transparent; margin:6px 0 0 10px; background:#080808; }
-    .reqitem:hover { border-color:#333; background:#111; }
-    .reqitem.active { border-color:#444; background:#151515; }
+    .indent { opacity:0.95; }
+    .indent .dot { opacity:0.35; }
+    .pill { display:inline-block; padding:3px 10px; border-radius:999px; border:1px solid #333; background:#0a0a0a; }
   </style>
   <script>
     {{ common_js|safe }}
     function setTab(name) {
       const u = new URL(window.location.href);
       u.searchParams.set("tab", name);
-      const e = document.getElementById("env_select");
-      if (e) u.searchParams.set("env", e.value);
       window.location.href = u.toString();
     }
     async function copyId(id) {
@@ -381,16 +457,19 @@ TEMPLATE = r"""
   {{ header|safe }}
   <div class="page">
     <h1>DCBaaS API</h1>
-    <p class="muted">DEV / T&I / PROD + Token + Runner + Application + Certificate — in 1 CyNiT pagina.</p>
+    <p class="muted">
+      Eén pagina voor: <span class="pill">DEV / T&I / PROD</span> + <span class="pill">JWT → token</span> +
+      <span class="pill">Postman Runner (nested folders)</span> + <span class="pill">Apps</span> + <span class="pill">Certs</span> +
+      <span class="pill">Connect & Run Health</span>.
+    </p>
 
     <div class="wrap">
       <div class="panel">
         <h2>Connect</h2>
 
         <form method="post" action="{{ url_for('dcbaas_api.connect') }}" enctype="multipart/form-data">
-          <input type="hidden" name="tab" value="{{ tab }}">
           <label><strong>Environment</strong></label>
-          <select id="env_select" name="env_id">
+          <select name="env_id">
             {% for k, e in envs.items() %}
               <option value="{{k}}" {% if k==env_id %}selected{% endif %}>{{ e.label }}</option>
             {% endfor %}
@@ -432,10 +511,10 @@ TEMPLATE = r"""
             <input type="password" name="key_password" value="">
           </div>
 
-          <div style="margin-top:12px;">
+          <div style="margin-top:12px; display:flex; gap:8px; flex-wrap:wrap;">
             <button class="btn" type="submit" name="do_smoke" value="0">🔌 Connect</button>
             <button class="btn btn2" type="submit" name="do_smoke" value="1">⚡ Connect & Run Health</button>
-            <a class="btn btn2" href="{{ url_for('dcbaas_api.index', tab=tab, env=env_id, req=selected_name) }}">↩ Refresh</a>
+            <a class="btn btn2" href="{{ url_for('dcbaas_api.index', tab=tab, env=env_id, req=req_key or '') }}">↩ Refresh</a>
           </div>
 
           {% if auth %}
@@ -445,12 +524,22 @@ TEMPLATE = r"""
             </div>
           {% endif %}
 
+          {% if smoke %}
+            <div style="margin-top:12px;">
+              <span class="tag">SMOKE</span>
+              {% if smoke.ok %}<span class="ok">OK</span>{% else %}<span class="err">FOUT</span>{% endif %}
+              <div class="muted small">{{ smoke.msg }}</div>
+              {% if smoke.last %}
+                <div class="muted small">Endpoint: <code>{{ smoke.last.url }}</code> — {{ smoke.last.status }} ({{ smoke.last.elapsed_ms }} ms)</div>
+              {% endif %}
+            </div>
+          {% endif %}
+
           <hr style="border-color:#222; margin: 12px 0;">
 
           <h3>Current token</h3>
           <textarea id="token_box" readonly>{{ token }}</textarea>
           <button type="button" class="btn btn2 small" onclick="copyId('token_box')">Kopieer token</button>
-
         </form>
       </div>
 
@@ -466,28 +555,30 @@ TEMPLATE = r"""
         {% if tab=='runner' %}
           <div class="panel" style="margin-top:14px;">
             <h2>Postman Runner</h2>
+            <p class="muted small">Collection: <code>{{ collection_name }}</code> — requests: {{ requests|length }}</p>
 
             <div class="row2">
-              <div style="max-height:520px; overflow:auto;">
-                {% for folder in tree %}
-                  <details class="folder" {% if folder.open %}open{% endif %}>
-                    <summary>📁 {{ folder.title }} <span class="count">({{ folder.count }})</span></summary>
-                    <div style="margin-top:8px;">
-                      {% for r in folder.reqs %}
-                        <a class="reqitem {% if r.name == selected_name %}active{% endif %}"
-                           href="{{ url_for('dcbaas_api.index', tab='runner', env=env_id, req=r.name) }}">
-                          <span class="tag">{{ r.method }}</span>{{ r.short }}
-                        </a>
-                      {% endfor %}
-                    </div>
-                  </details>
+              <div class="reqlist" style="max-height:520px; overflow:auto;">
+                {% for r in requests %}
+                  {% set indent = ('&nbsp;&nbsp;&nbsp;' * r.depth) %}
+                  <a class="{% if r.key == selected_key %}active{% endif %}"
+                     href="{{ url_for('dcbaas_api.index', tab='runner', env=env_id, req=r.key) }}">
+                    <span class="tag">{{ r.method }}</span>
+                    <span class="indent">{{ indent|safe }}<span class="dot">•</span> {{ r.name }}</span>
+                    {% if r.folder %}
+                      <div class="muted small">{{ " / ".join(r.folder) }}</div>
+                    {% else %}
+                      <div class="muted small">(root)</div>
+                    {% endif %}
+                  </a>
                 {% endfor %}
               </div>
 
               <div>
                 <form method="post" action="{{ url_for('dcbaas_api.run_request') }}">
                   <input type="hidden" name="env_id" value="{{ env_id }}">
-                  <input type="hidden" name="selected_name" value="{{ selected_name }}">
+                  <input type="hidden" name="selected_key" value="{{ selected_key }}">
+
                   <label><strong>Method</strong></label>
                   <input type="text" name="method" value="{{ selected.method }}" readonly>
 
@@ -502,8 +593,9 @@ TEMPLATE = r"""
                   <textarea name="body_text" id="body_text">{{ body_text }}</textarea>
                   <button type="button" class="btn btn2 small" onclick="copyId('body_text')">Copy</button>
 
-                  <div style="margin-top:12px;">
+                  <div style="margin-top:12px; display:flex; gap:8px; flex-wrap:wrap;">
                     <button class="btn" type="submit">▶ Run</button>
+                    <a class="btn btn2" href="{{ url_for('dcbaas_api.index', tab='runner', env=env_id, req=selected_key) }}">↩ Reset</a>
                   </div>
                 </form>
               </div>
@@ -604,102 +696,10 @@ TEMPLATE = r"""
 </html>
 """
 
-
-def _parse_headers_text(txt: str) -> Dict[str, str]:
-    out: Dict[str, str] = {}
-    for line in (txt or "").splitlines():
-        line = line.strip()
-        if not line or ":" not in line:
-            continue
-        k, v = line.split(":", 1)
-        out[k.strip()] = v.strip()
-    return out
-
-
-def _do_request(method: str, url: str, headers: Dict[str, str], body_text: str) -> None:
-    data = None
-    json_payload = None
-
-    if body_text and body_text.strip():
-        try:
-            json_payload = json.loads(body_text)
-        except Exception:
-            # simple form-style fallback: key=value per line
-            if "\n" in body_text and "=" in body_text and "{" not in body_text and "[" not in body_text:
-                form: Dict[str, str] = {}
-                for line in body_text.splitlines():
-                    if "=" not in line:
-                        continue
-                    k, v = line.split("=", 1)
-                    form[k.strip()] = v.strip()
-                data = form
-            else:
-                data = body_text.encode("utf-8")
-
-    t0 = time.time()
-    try:
-        resp = requests.request(method=method, url=url, headers=headers, json=json_payload, data=data, timeout=60)
-        elapsed_ms = int((time.time() - t0) * 1000)
-        STATE["last_resp"] = {
-            "ok": resp.ok,
-            "status": f"{resp.status_code} {resp.reason}",
-            "elapsed_ms": elapsed_ms,
-            "headers": "\n".join([f"{k}: {v}" for k, v in resp.headers.items()]),
-            "body": _safe_json_pretty(resp.text),
-        }
-    except Exception as e:
-        STATE["last_resp"] = {"ok": False, "status": "REQUEST FAILED", "elapsed_ms": -1, "headers": "", "body": str(e)}
-
-
-def _csr_to_b64(csr_text: str, csr_file) -> str:
-    if csr_file and getattr(csr_file, "filename", ""):
-        b = csr_file.read()
-        return base64.b64encode(b).decode("utf-8")
-
-    t = (csr_text or "").strip()
-    if not t:
-        return ""
-
-    # PEM CSR -> strip headers/footers
-    if "BEGIN" in t and "CERTIFICATE REQUEST" in t:
-        lines = [ln.strip() for ln in t.splitlines() if ln and "BEGIN" not in ln and "END" not in ln]
-        return "".join(lines)
-
-    # already base64/der-ish
-    return re.sub(r"\s+", "", t)
-
-
-def _build_tree(reqs: List[PMRequest], selected_name: str) -> List[Dict[str, Any]]:
-    """
-    Returns list of folders:
-      {title, count, open, reqs:[{name, short, method}]}
-    Title is the full folder path (multi-level). Root requests go under "(root)".
-    """
-    buckets: Dict[str, List[PMRequest]] = {}
-    for r in reqs:
-        if " :: " in r.name:
-            folder, _short = r.name.split(" :: ", 1)
-            folder = folder.strip() or "(root)"
-            buckets.setdefault(folder, []).append(r)
-        else:
-            buckets.setdefault("(root)", []).append(r)
-
-    out: List[Dict[str, Any]] = []
-    for folder in sorted(buckets.keys(), key=lambda s: s.lower()):
-        items = buckets[folder]
-        view_items = []
-        for r in items:
-            short = r.name.split(" :: ", 1)[1] if " :: " in r.name else r.name
-            view_items.append({"name": r.name, "short": short, "method": r.method})
-        open_it = any(r.name == selected_name for r in items)
-        out.append({"title": folder, "count": len(items), "open": open_it, "reqs": view_items})
-    return out
-
-
-def _render(tab: str = "runner", env_id: str = "DEV", selected_req: str = ""):
+def _render(tab: str = "runner", env_id: str = "DEV", selected_key: str = ""):
     settings = cynit_theme.load_settings()
     tools_cfg = cynit_theme.load_tools()
-    tools = tools_cfg.get("tools", [])
+    tools = (tools_cfg.get("tools", []) if isinstance(tools_cfg, dict) else [])
 
     cfg = load_cfg()
     envs = cfg.get("environments", {}) or {}
@@ -713,43 +713,48 @@ def _render(tab: str = "runner", env_id: str = "DEV", selected_req: str = ""):
     token = STATE["tokens"].get(env_id, "")
 
     col_path = Path(__file__).parent / str(cfg.get("postman_collection_path", "config/dcbaas_postman_collection.json"))
-    _collection_name, reqs, _vars = _load_collection(col_path)
+    collection_name, reqs, _vars = _load_collection(col_path)
 
-    selected_name = selected_req or (reqs[0].name if reqs else "")
-    selected = next((r for r in reqs if r.name == selected_name), reqs[0] if reqs else PMRequest("(none)", "GET", "", [], "", "", []))
+    if reqs:
+        sel_key = selected_key or reqs[0].key
+    else:
+        sel_key = ""
+    selected = next((r for r in reqs if r.key == sel_key), reqs[0] if reqs else None)
 
-    # variables for Postman substitution
     var_values = {
         "url": (env.get("base_url") or "").rstrip("/"),
         "Origin": origin,
-        "DCB TOKEN": _as_bearer(token),
+        "DCB TOKEN": token,
     }
 
-    resolved_url = _apply_vars(selected.url_raw, var_values)
+    if selected:
+        resolved_url = _apply_vars(selected.url_raw, var_values)
+        headers_dict = _headers_to_dict(selected.headers, var_values)
 
-    headers_dict = _headers_to_dict(selected.headers, var_values)
-    headers_dict.setdefault("Origin", origin)
-    if token and "Authorization" not in headers_dict:
-        headers_dict["Authorization"] = _as_bearer(token)
-    headers_text = "\n".join([f"{k}: {v}" for k, v in headers_dict.items()])
+        if "Origin" not in headers_dict:
+            headers_dict["Origin"] = origin
+        if token and "Authorization" not in headers_dict:
+            headers_dict["Authorization"] = token
 
-    raw_body, form_body, _ct = _build_body(selected, var_values)
-    if form_body is not None:
-        body_text = "\n".join([f"{k}={v}" for k, v in form_body.items()])
-        body_mode_label = "x-www-form-urlencoded"
-    elif raw_body is not None:
-        body_text = _safe_json_pretty(raw_body)
-        body_mode_label = "raw"
+        headers_text = "\n".join([f"{k}: {v}" for k, v in headers_dict.items()])
+
+        raw_body, form_body, _ct = _build_body(selected, var_values)
+        if form_body is not None:
+            body_text = "\n".join([f"{k}={v}" for k, v in form_body.items()])
+            body_mode_label = "x-www-form-urlencoded"
+        elif raw_body is not None:
+            body_text = _safe_json_pretty(raw_body)
+            body_mode_label = "raw"
+        else:
+            body_text = ""
+            body_mode_label = "none"
     else:
-        body_text = ""
-        body_mode_label = "none"
+        resolved_url, headers_text, body_text, body_mode_label = "", "", "", "none"
 
     base_css = cynit_layout.common_css(settings)
     common_js = cynit_layout.common_js()
     header = cynit_layout.header_html(settings, tools=tools, title="CyNiT - DCBaaS API", right_html="")
     footer = cynit_layout.footer_html()
-
-    tree = _build_tree(reqs, selected_name)
 
     return render_template_string(
         TEMPLATE,
@@ -768,36 +773,34 @@ def _render(tab: str = "runner", env_id: str = "DEV", selected_req: str = ""):
         exp_offset=exp_offset,
         token=token,
         auth=STATE.get("last_auth"),
-        tree=tree,
-        selected=selected,
-        selected_name=selected_name,
+        smoke=STATE.get("last_smoke"),
+        collection_name=collection_name,
+        requests=reqs,
+        selected=(selected or PMRequest(key="(none)", name="(none)", folder=[], depth=0, method="GET", url_raw="", headers=[], body_mode="", body_raw="", body_urlencoded=[])),
+        selected_key=sel_key,
+        req_key=sel_key,
         resolved_url=resolved_url,
         headers_text=headers_text,
         body_text=body_text,
         body_mode_label=body_mode_label,
         last=STATE.get("last_resp"),
-        templates=CERT_TEMPLATES,
+        templates=TEMPLATES,
     )
-
 
 # -------------------- Routes --------------------
 
-@bp.route("/dcbaas", methods=["GET"])
+@bp.route("/dcbaas-api", methods=["GET"])
 def index():
     tab = (request.args.get("tab") or "runner").strip()
     env_id = (request.args.get("env") or "DEV").strip()
-    req_name = (request.args.get("req") or "").strip()
-    return _render(tab=tab, env_id=env_id, selected_req=req_name)
+    req_key = (request.args.get("req") or "").strip()
+    return _render(tab=tab, env_id=env_id, selected_key=req_key)
 
-
-@bp.route("/dcbaas/connect", methods=["POST"])
+@bp.route("/dcbaas-api/connect", methods=["POST"])
 def connect():
     cfg = load_cfg()
     env_id = (request.form.get("env_id") or "DEV").strip()
     env = _env(cfg, env_id)
-
-    tab = (request.form.get("tab") or "runner").strip()
-    do_smoke = (request.form.get("do_smoke") or "0").strip() == "1"
 
     base_url = (request.form.get("base_url") or env.get("base_url") or "").strip()
     api_prefix = (request.form.get("api_prefix") or env.get("api_prefix") or "").strip()
@@ -808,28 +811,31 @@ def connect():
 
     iss_sub = (request.form.get("iss_sub") or (cfg.get("defaults", {}) or {}).get("iss_sub", "")).strip()
     kid = (request.form.get("kid") or (cfg.get("defaults", {}) or {}).get("kid", "")).strip()
-    exp_offset = (request.form.get("exp_offset") or (cfg.get("defaults", {}) or {}).get("exp_offset", 300)).strip()
+    exp_offset_raw = (request.form.get("exp_offset") or (cfg.get("defaults", {}) or {}).get("exp_offset", 300)).strip()
     try:
-        exp_offset_i = int(exp_offset)
+        exp_offset = int(exp_offset_raw)
     except Exception:
-        exp_offset_i = 300
+        exp_offset = 300
 
     key_password = request.form.get("key_password") or None
     key_file = request.files.get("key_file")
 
+    do_smoke = (request.form.get("do_smoke") or "0").strip() == "1"
+    STATE["last_smoke"] = None
+
     if not iss_sub:
         STATE["last_auth"] = {"ok": False, "msg": "iss_sub is leeg. Vul je client-id/uuid in."}
-        return redirect(url_for("dcbaas_api.index", tab=tab, env=env_id))
+        return _render(env_id=env_id)
 
     if not key_file or not key_file.filename:
         STATE["last_auth"] = {"ok": False, "msg": "Geen key file geselecteerd (.pfx/.pem/.jwk/...)"}
-        return redirect(url_for("dcbaas_api.index", tab=tab, env=env_id))
+        return _render(env_id=env_id)
 
     try:
         key_bytes = key_file.read()
         key = _load_private_key_from_upload(key_file.filename, key_bytes, key_password)
 
-        jwt_token = _build_jwt(iss_sub=iss_sub, aud=jwt_aud, key=key, kid=(kid or None), exp_offset=exp_offset_i)
+        jwt_token = _build_jwt(iss_sub=iss_sub, aud=jwt_aud, key=key, kid=(kid or None), exp_offset=exp_offset)
         aud_for_token = token_audience or iss_sub
         access_token = _request_access_token(token_url=token_url, jwt_token=jwt_token, audience=aud_for_token)
 
@@ -839,45 +845,46 @@ def connect():
         STATE["tokens"][env_id] = access_token
         STATE["last_auth"] = {"ok": True, "msg": f"Token OK voor {env_id}. (base_url={base_url})"}
 
-        # persist defaults + env tweaks for next time
-        p = _cfg_path()
-        p.parent.mkdir(parents=True, exist_ok=True)
-        cur = load_cfg()
-        cur["defaults"]["origin"] = origin
-        cur["defaults"]["iss_sub"] = iss_sub
-        cur["defaults"]["kid"] = kid
-        cur["defaults"]["exp_offset"] = exp_offset_i
-        cur["environments"][env_id] = {
-            **(cur["environments"].get(env_id, {}) or {}),
+        # Persist config
+        cfg["defaults"]["origin"] = origin
+        cfg["defaults"]["iss_sub"] = iss_sub
+        cfg["defaults"]["kid"] = kid
+        cfg["defaults"]["exp_offset"] = exp_offset
+        cfg["environments"][env_id] = {
+            **(cfg["environments"].get(env_id, {}) or {}),
             "base_url": base_url,
             "api_prefix": api_prefix,
             "token_url": token_url,
             "jwt_aud": jwt_aud,
             "token_audience": token_audience,
-            "label": (cur["environments"].get(env_id, {}) or {}).get("label", env_id),
+            "label": (cfg["environments"].get(env_id, {}) or {}).get("label", env_id),
         }
-        p.write_text(json.dumps(cur, indent=2, ensure_ascii=False), encoding="utf-8")
+        _persist_cfg(cfg)
 
         if do_smoke:
-            # real smoke test: call health endpoint immediately
-            health_path = (cur.get("health_path") or "/health").strip() or "/health"
+            health_path = (cfg.get("health_path") or "/health").strip()
             url = f"{base_url.rstrip('/')}{api_prefix}{health_path}"
-            headers = {"Origin": origin, "Accept": "application/json", "Authorization": _as_bearer(access_token)}
-            _do_request("GET", url, headers, "")
+            headers = {"Origin": origin, "Accept": "application/json", "Authorization": access_token}
+            last = _do_request("GET", url, headers, body_text="", timeout=30)
+            STATE["last_resp"] = last
+            STATE["last_smoke"] = {
+                "ok": bool(last.get("ok")),
+                "msg": "Health check uitgevoerd." if last.get("ok") else "Health check faalde.",
+                "last": {"url": url, "status": last.get("status"), "elapsed_ms": last.get("elapsed_ms")},
+            }
 
     except Exception as e:
         STATE["last_auth"] = {"ok": False, "msg": str(e)}
 
-    return redirect(url_for("dcbaas_api.index", tab=tab, env=env_id))
+    return _render(env_id=env_id)
 
-
-@bp.route("/dcbaas/run", methods=["POST"])
+@bp.route("/dcbaas-api/run", methods=["POST"])
 def run_request():
     cfg = load_cfg()
     env_id = (request.form.get("env_id") or "DEV").strip()
     env = _env(cfg, env_id)
 
-    selected_name = (request.form.get("selected_name") or "").strip()
+    selected_key = (request.form.get("selected_key") or "").strip()
     method = (request.form.get("method") or "GET").upper().strip()
     url = (request.form.get("url") or "").strip()
 
@@ -885,22 +892,22 @@ def run_request():
     origin = (cfg.get("defaults", {}) or {}).get("origin", "localhost")
 
     headers = _parse_headers_text(request.form.get("headers_text") or "")
-    headers.setdefault("Origin", origin)
+    if "Origin" not in headers:
+        headers["Origin"] = origin
     if token and "Authorization" not in headers:
-        headers["Authorization"] = _as_bearer(token)
+        headers["Authorization"] = token
 
     body_text = request.form.get("body_text") or ""
 
-    var_values = {"url": (env.get("base_url") or "").rstrip("/"), "Origin": origin, "DCB TOKEN": _as_bearer(token)}
+    var_values = {"url": (env.get("base_url") or "").rstrip("/"), "Origin": origin, "DCB TOKEN": token}
     url2 = _apply_vars(url, var_values)
     body2 = _apply_vars(body_text, var_values)
     headers2 = {k: _apply_vars(v, var_values) for k, v in headers.items()}
 
-    _do_request(method, url2, headers2, body2)
-    return redirect(url_for("dcbaas_api.index", tab="runner", env=env_id, req=selected_name))
+    STATE["last_resp"] = _do_request(method, url2, headers2, body2, timeout=60)
+    return _render(tab="runner", env_id=env_id, selected_key=selected_key)
 
-
-@bp.route("/dcbaas/app", methods=["POST"])
+@bp.route("/dcbaas-api/app", methods=["POST"])
 def app_action():
     cfg = load_cfg()
     env_id = (request.form.get("env_id") or "DEV").strip()
@@ -919,28 +926,28 @@ def app_action():
 
     if action == "health":
         url = f"{base_url}{api_prefix}/health"
-        headers = {"Origin": origin, "Accept": "application/json"}
+        hdr = {"Origin": origin, "Accept": "application/json"}
         if token:
-            headers["Authorization"] = _as_bearer(token)
-        _do_request("GET", url, headers, "")
-        return redirect(url_for("dcbaas_api.index", tab="apps", env=env_id))
+            hdr["Authorization"] = token
+        STATE["last_resp"] = _do_request("GET", url, hdr, "")
+        return _render(tab="apps", env_id=env_id)
 
     if not name:
         STATE["last_resp"] = {"ok": False, "status": "INPUT ERROR", "elapsed_ms": -1, "headers": "", "body": "Application name is verplicht."}
-        return redirect(url_for("dcbaas_api.index", tab="apps", env=env_id))
+        return _render(tab="apps", env_id=env_id)
 
     headers = {"Origin": origin, "Accept": "application/json", "Content-Type": "application/json"}
     if token:
-        headers["Authorization"] = _as_bearer(token)
+        headers["Authorization"] = token
 
     if action == "add":
         url = f"{base_url}{api_prefix}/application/add"
         payload = {"name": name, "reason": reason}
-        _do_request("POST", url, headers, json.dumps(payload, ensure_ascii=False))
+        STATE["last_resp"] = _do_request("POST", url, headers, json.dumps(payload, ensure_ascii=False))
     elif action == "update":
         url = f"{base_url}{api_prefix}/application/update"
         payload = {"name": name, "reason": reason}
-        _do_request("POST", url, headers, json.dumps(payload, ensure_ascii=False))
+        STATE["last_resp"] = _do_request("POST", url, headers, json.dumps(payload, ensure_ascii=False))
     elif action == "delegate":
         try:
             dur_i = int(duration)
@@ -948,18 +955,17 @@ def app_action():
             dur_i = 1
         url = f"{base_url}{api_prefix}/application/delegate"
         payload = {"name": name, "organization_code_delegated": org_code, "duration": dur_i}
-        _do_request("POST", url, headers, json.dumps(payload, ensure_ascii=False))
+        STATE["last_resp"] = _do_request("POST", url, headers, json.dumps(payload, ensure_ascii=False))
     elif action == "delete":
         url = f"{base_url}{api_prefix}/application/delete"
         payload = {"name": name}
-        _do_request("POST", url, headers, json.dumps(payload, ensure_ascii=False))
+        STATE["last_resp"] = _do_request("POST", url, headers, json.dumps(payload, ensure_ascii=False))
     else:
         STATE["last_resp"] = {"ok": False, "status": "UNKNOWN ACTION", "elapsed_ms": -1, "headers": "", "body": action}
 
-    return redirect(url_for("dcbaas_api.index", tab="apps", env=env_id))
+    return _render(tab="apps", env_id=env_id)
 
-
-@bp.route("/dcbaas/cert/add", methods=["POST"])
+@bp.route("/dcbaas-api/cert/add", methods=["POST"])
 def cert_add():
     cfg = load_cfg()
     env_id = (request.form.get("env_id") or "DEV").strip()
@@ -970,7 +976,7 @@ def cert_add():
     token = STATE["tokens"].get(env_id, "")
     origin = (cfg.get("defaults", {}) or {}).get("origin", "localhost")
 
-    app = (request.form.get("application_name") or "").strip()
+    app_name = (request.form.get("application_name") or "").strip()
     desc = (request.form.get("description") or "").strip()
     org = (request.form.get("organization_code") or "").strip()
     duration = (request.form.get("duration") or "12").strip()
@@ -989,36 +995,30 @@ def cert_add():
 
     csr_b64 = _csr_to_b64(csr_text, csr_file)
 
-    if not app or not csr_b64:
+    if not app_name or not csr_b64:
         STATE["last_resp"] = {"ok": False, "status": "INPUT ERROR", "elapsed_ms": -1, "headers": "", "body": "Application name en CSR zijn verplicht."}
-        return redirect(url_for("dcbaas_api.index", tab="certs", env=env_id))
+        return _render(tab="certs", env_id=env_id)
 
     headers = {"Origin": origin, "Accept": "application/json", "Content-Type": "application/json"}
     if token:
-        headers["Authorization"] = _as_bearer(token)
+        headers["Authorization"] = token
 
     url = f"{base_url}{api_prefix}/application/certificate/add"
     payload = {
-        "application_name": app,
-        "description": desc or f"Certificaat {app}",
+        "application_name": app_name,
+        "description": desc or f"Certificaat {app_name}",
         "organization_code": org,
         "duration": dur_i,
         "certificate_template": tpl,
         "csr": csr_b64,
     }
-    _do_request("POST", url, headers, json.dumps(payload, ensure_ascii=False))
-    return redirect(url_for("dcbaas_api.index", tab="certs", env=env_id))
-
+    STATE["last_resp"] = _do_request("POST", url, headers, json.dumps(payload, ensure_ascii=False))
+    return _render(tab="certs", env_id=env_id)
 
 def register_web_routes(app: Flask, settings: dict, tools=None) -> None:
     app.register_blueprint(bp)
 
-
 if __name__ == "__main__":
-    # Standalone test
     app = Flask(__name__)
-    settings = cynit_theme.load_settings()
-    tools_cfg = cynit_theme.load_tools()
-    tools = tools_cfg.get("tools", [])
-    register_web_routes(app, settings, tools)
+    register_web_routes(app, cynit_theme.load_settings(), cynit_theme.load_tools())
     app.run(host="127.0.0.1", port=5451, debug=True)

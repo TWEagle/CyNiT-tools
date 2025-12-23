@@ -65,13 +65,13 @@
       "description": "Centrale verzamelplaats van handige URL's (documentatie, dashboards, portalen, ...)."
     },
     {
-      "id": "dcbaas_api",
+      "id": "dcbaas-api",
       "name": "DCBaaS API",
       "type": "web",
       "web_path": "/dcbaas-api",
       "script": "dcbaas_api.py",
       "icon_web": "🔌",
-      "description": "DEV / T&I / PROD: one-click connect (JWT→token), Postman runner (multi-level folders), apps & cert acties + Connect & Run Health smoke test."
+      "description": "DEV / T&I / PROD: connect (JWT→token), Postman runner (nested folders), apps & cert acties + one-click health smoke test."
     }
   ]
 }
